@@ -7,6 +7,7 @@ const authForm = document.getElementById("authForm");
 const authMessage = document.getElementById("authMessage");
 const authSubmit = document.getElementById("authSubmit");
 const authModeToggle = document.getElementById("authModeToggle");
+const resendConfirmationButton = document.getElementById("resendConfirmationButton");
 const characterNameField = document.getElementById("characterNameField");
 const characterNameInput = document.getElementById("characterName");
 const gamePanel = document.getElementById("gamePanel");
@@ -149,6 +150,10 @@ function showAuthMessage(message, isError = false) {
     authMessage.classList.toggle("error", isError);
 }
 
+function getEmailRedirectUrl() {
+    return `${window.location.origin}${window.location.pathname}`;
+}
+
 function setAuthMode(mode) {
     authMode = mode;
     const isSignUp = mode === "signup";
@@ -165,6 +170,7 @@ function setAuthMode(mode) {
     document.getElementById("authPassword").autocomplete = isSignUp
         ? "new-password"
         : "current-password";
+    resendConfirmationButton.hidden = true;
     showAuthMessage("");
 }
 
@@ -218,8 +224,49 @@ function initializeSupabase() {
         window.ARCANA_SUPABASE_CONFIG.publishableKey
     );
 
+    const callbackParams = new URLSearchParams(window.location.hash.slice(1));
+    if (callbackParams.get("error_code") === "otp_expired") {
+        setAuthMode("signup");
+        showAuthMessage("이메일 확인 링크가 만료되었거나 이미 사용되었습니다. 이메일 주소를 입력하고 확인 메일을 다시 보내세요.", true);
+        resendConfirmationButton.hidden = false;
+        window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+    } else if (callbackParams.has("error")) {
+        showAuthMessage(
+            callbackParams.get("error_description") || "이메일 확인 중 오류가 발생했습니다. 새 확인 메일을 요청해 주세요.",
+            true
+        );
+        window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+    }
+
     authModeToggle.addEventListener("click", () => {
         setAuthMode(authMode === "login" ? "signup" : "login");
+    });
+
+    resendConfirmationButton.addEventListener("click", async () => {
+        const email = document.getElementById("authEmail").value.trim();
+        if (!email) {
+            showAuthMessage("확인 메일을 받을 이메일 주소를 입력하세요.", true);
+            document.getElementById("authEmail").focus();
+            return;
+        }
+
+        resendConfirmationButton.disabled = true;
+        showAuthMessage("");
+        try {
+            const { error } = await supabaseClient.auth.resend({
+                type: "signup",
+                email,
+                options: { emailRedirectTo: getEmailRedirectUrl() }
+            });
+            if (error) {
+                throw error;
+            }
+            showAuthMessage("새 확인 메일을 요청했습니다. 받은 편지함을 확인하세요.");
+        } catch (error) {
+            showAuthMessage(`확인 메일을 보내지 못했습니다: ${error.message}`, true);
+        } finally {
+            resendConfirmationButton.disabled = false;
+        }
     });
 
     authForm.addEventListener("submit", async (event) => {
@@ -244,7 +291,8 @@ function initializeSupabase() {
                     email,
                     password,
                     options: {
-                        data: { character_name: name }
+                        data: { character_name: name },
+                        emailRedirectTo: getEmailRedirectUrl()
                     }
                 });
                 if (error) {
@@ -252,6 +300,7 @@ function initializeSupabase() {
                 }
                 if (!data.session) {
                     showAuthMessage("가입 요청이 완료되었습니다. 이메일을 확인한 뒤 로그인하세요.");
+                    resendConfirmationButton.hidden = false;
                 }
             } else {
                 const { error } = await supabaseClient.auth.signInWithPassword({
