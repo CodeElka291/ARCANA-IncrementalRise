@@ -151,7 +151,7 @@ function showAuthMessage(message, isError = false) {
 }
 
 function getEmailRedirectUrl() {
-    return `${window.location.origin}${window.location.pathname}`;
+    return window.ARCANA_SUPABASE_CONFIG.redirectUrl;
 }
 
 function setAuthMode(mode) {
