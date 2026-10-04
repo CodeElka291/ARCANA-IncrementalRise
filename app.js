@@ -44,7 +44,8 @@ function writeLine(text = "", className = "") {
 }
 
 function setPrompt() {
-    prompt.textContent = `${player.name}@${player.location === "forest" ? "숲" : player.location === "market" ? "장터" : "초심자의 마을"}>`;
+    const locationName = gameplayContent?.locations?.[player.location]?.name || player.location;
+    prompt.textContent = `${player.name}@${locationName}>`;
     input.placeholder = "명령어를 입력하고 Enter를 누르세요";
 }
 
@@ -64,31 +65,29 @@ function showHelp() {
 }
 
 function lookAround() {
-    if (player.location === "forest") {
-        writeLine("[깊은 숲] 나무들이 햇빛을 가리고 있습니다. 멀리서 정체를 알 수 없는 울음소리가 들립니다.");
-        writeLine("마을로 돌아가려면 '마을' 또는 '이동 마을'을 입력하세요.");
-    } else if (player.location === "market") {
-        writeLine("[장터] 상인들의 목소리와 사람들의 발걸음으로 북적입니다. 아직 문을 연 가게는 많지 않습니다.");
-        writeLine("마을로 돌아가려면 '마을' 또는 '이동 마을'을 입력하세요.");
-    } else {
-        writeLine("[초심자의 마을] 낡은 게시판과 작은 여관이 보입니다. 동쪽 길은 장터로, 북쪽 길은 숲으로 이어집니다.");
-        writeLine("검을 들어보거나 책을 펼쳐볼 수 있습니다.");
+    const location = gameplayContent?.locations?.[player.location];
+    if (!location) {
+        writeLine("현재 위치 정보를 찾을 수 없습니다. 새로고침한 뒤 다시 시도하세요.");
+        return;
     }
+    writeLine(`[${location.name}] ${location.description || "주변을 둘러봅니다."}`);
+    const exits = (location.exits || []).map((id) => gameplayContent.locations[id]?.name || id);
+    if (exits.length) writeLine(`이동 가능한 곳: ${exits.join(", ")} (지역 이름 또는 '이동 <지역>' 입력)`);
+    if (player.location === "village") writeLine("검을 들어보거나 책을 펼쳐볼 수 있습니다.");
 }
 
 function moveTo(destination) {
     const place = destination.trim().toLowerCase();
-    const forestNames = ["숲", "숲으로", "숲으로 향한다", "forest", "북쪽"];
-    const marketNames = ["장터", "장터로", "장터를 둘러본다", "시장", "market", "동쪽"];
-    const villageNames = ["마을", "마을로", "town", "귀환", "돌아가기"];
-    const target = forestNames.includes(place) ? "forest" : marketNames.includes(place) ? "market" : villageNames.includes(place) ? "village" : null;
+    const target = Object.entries(gameplayContent.locations || {}).find(([id, location]) =>
+        [id, location.name, ...(location.aliases || [])].some((name) => String(name).trim().toLowerCase() === place)
+    )?.[0];
     if (target) {
         const exits = gameplayContent.locations[player.location]?.exits || [];
         if (!exits.includes(target)) {
             writeLine("그곳으로 가는 길은 현재 위치에서 이어지지 않습니다.");
             return;
         }
-        if (!playerState.unlockedLocations[target]) {
+        if (playerState.unlockedLocations[target] === false) {
             writeLine("아직 그 지역은 해금되지 않았습니다.");
             return;
         }
@@ -96,28 +95,9 @@ function moveTo(destination) {
             writeLine("전투 중에는 이동할 수 없습니다. '공격'하거나 '도망'을 입력하세요.");
             return;
         }
-    }
-
-    if (["숲", "숲으로", "숲으로 향한다", "forest", "북쪽"].includes(place)) {
-        playerState.location = "forest";
+        playerState.location = target;
         setPrompt();
-        writeLine("당신은 마을을 떠나 숲으로 향합니다.");
-        lookAround();
-        return;
-    }
-
-    if (["장터", "장터로", "장터를 둘러본다", "시장", "market", "동쪽"].includes(place)) {
-        playerState.location = "market";
-        setPrompt();
-        writeLine("당신은 동쪽 길을 따라 장터로 향합니다.");
-        lookAround();
-        return;
-    }
-
-    if (["마을", "마을로", "town", "귀환", "돌아가기"].includes(place)) {
-        playerState.location = "village";
-        setPrompt();
-        writeLine("당신은 초심자의 마을로 돌아옵니다.");
+        writeLine(`${gameplayContent.locations[target].name}(으)로 이동합니다.`);
         lookAround();
         return;
     }
@@ -197,9 +177,16 @@ startGameButton.addEventListener("click", async () => {
 
 function showPlayerStatus() {
     writeLine(`[상태] ${playerState.name} | 레벨 ${playerState.level} (${playerState.xp}/${playerState.level * 20} XP) | 체력 ${playerState.hp}/${playerState.maxHp} | 골드 ${playerState.gold}`);
-    writeLine(`위치: ${playerState.location === "forest" ? "숲" : playerState.location === "market" ? "장터" : "초심자의 마을"}`);
+    writeLine(`위치: ${gameplayContent.locations[playerState.location]?.name || playerState.location}`);
     const questStatuses = { active: "진행 중", complete: "완료" };
-    const quests = Object.entries(playerState.quests).map(([id, status]) => `${gameplayContent.quests?.[id]?.name || id}: ${questStatuses[status] || status}`);
+    const quests = Object.entries(playerState.quests).map(([id, status]) => {
+        const quest = gameplayContent.quests?.[id];
+        const objective = quest?.objective;
+        const objectiveProgress = status === "active" && objective?.type === "defeatMonster"
+            ? ` (목표: ${gameplayContent.locations[objective.location]?.name || objective.location}에서 ${gameplayContent.monsters[objective.monsterId]?.name || objective.monsterId} 처치 ${playerState.questProgress?.[id] || 0}/${objective.required || 1})`
+            : "";
+        return `${quest?.name || id}: ${questStatuses[status] || status}${objectiveProgress}`;
+    });
     if (quests.length) writeLine(`퀘스트: ${quests.join(" | ")}`);
 }
 
@@ -343,7 +330,9 @@ async function runCommand(command) {
         writeLine("책장을 펼칩니다. 첫 장에는 이렇게 적혀 있습니다. \"모든 위대한 여정은 작은 선택에서 시작된다.\"");
     } else if (normalized.startsWith("이동 ") || normalized.startsWith("go ")) {
         moveTo(command.slice(command.indexOf(" ") + 1));
-    } else if (["숲", "숲으로", "숲으로 향한다", "북쪽", "장터", "장터로", "장터를 둘러본다", "동쪽", "마을", "마을로", "귀환"].includes(normalized)) {
+    } else if (Object.entries(gameplayContent.locations || {}).some(([id, location]) =>
+        [id, location.name, ...(location.aliases || [])].some((name) => String(name).trim().toLowerCase() === normalized)
+    )) {
         moveTo(normalized);
     } else {
         writeLine(`알 수 없는 명령어입니다: ${command}`);

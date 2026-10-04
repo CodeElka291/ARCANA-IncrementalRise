@@ -10,7 +10,7 @@ const data = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "content", "d
 function state() {
     return {
         level: 1, xp: 0, hp: 25, maxHp: 25, gold: 0, location: "forest",
-        inventory: {}, quests: {}, flags: {}, combat: null
+        inventory: {}, quests: {}, questProgress: {}, flags: {}, combat: null
     };
 }
 
@@ -20,6 +20,24 @@ test("숲 탐험에서 몬스터 조우를 실제 전투 상태로 만든다", (
     assert.equal(player.combat.monsterId, "forest_wolf");
     assert.equal(player.combat.hp, 12);
     assert.equal(result.changed, true);
+});
+
+test("편집기로 추가한 탐험 지역도 지정한 몬스터와 조우한다", () => {
+    const customData = structuredClone(data);
+    customData.locations.ruins = { name: "폐허", explorable: true, monsterId: "forest_wolf", encounterChance: 1 };
+    const player = state();
+    player.location = "ruins";
+    const result = ArcanaGameplayEngine.explore(customData, player, () => 0);
+    assert.equal(player.combat.monsterId, "forest_wolf");
+    assert.ok(result.messages[0].includes("폐허"));
+});
+
+test("탐험을 허용하지 않은 지역에서는 탐험 명령이 게임 상태를 바꾸지 않는다", () => {
+    const player = state();
+    player.location = "market";
+    const result = ArcanaGameplayEngine.explore(data, player, () => 0);
+    assert.equal(result.changed, false);
+    assert.equal(player.combat, null);
 });
 
 test("전투 승리 보상, 경험치 레벨업, 퀘스트 완료를 적용한다", () => {
@@ -35,7 +53,20 @@ test("전투 승리 보상, 경험치 레벨업, 퀘스트 완료를 적용한�
     assert.equal(player.xp, 10);
     assert.equal(player.gold, 5);
     assert.equal(player.quests.ruins_clue, "complete");
+    assert.equal(player.questProgress.ruins_clue, 1);
     assert.ok(result.messages.some((message) => message.includes("퀘스트 완료")));
+});
+
+test("숲 밖에서 숲늑대를 처치하면 폐허의 단서 퀘스트가 진행되지 않는다", () => {
+    const player = state();
+    player.location = "market";
+    player.combat = { monsterId: "forest_wolf", hp: 12 };
+    player.quests.ruins_clue = "active";
+    ArcanaGameplayEngine.attack(data, player);
+    ArcanaGameplayEngine.attack(data, player);
+    ArcanaGameplayEngine.attack(data, player);
+    assert.equal(player.quests.ruins_clue, "active");
+    assert.equal(player.questProgress.ruins_clue, undefined);
 });
 
 test("패배하면 마을로 복귀하고 골드와 체력을 정해진 규칙으로 정산한다", () => {
