@@ -222,4 +222,104 @@ body {
         min-height: calc(70vh - 60px);
         max-height: 70vh;
     }
+
+    body.mobile-game-active {
+        position: fixed;
+        top: var(--game-viewport-top, 0px);
+        right: 0;
+        bottom: auto;
+        left: 0;
+        width: 100%;
+        height: var(--game-viewport-height, 100dvh);
+        min-height: 0;
+        padding: max(8px, env(safe-area-inset-top)) 10px max(8px, env(safe-area-inset-bottom));
+        overflow: hidden;
+        overscroll-behavior: none;
+    }
+
+    body.mobile-game-active #game {
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        height: 100%;
+        min-height: 0;
+        max-width: none;
+        margin: 0;
+    }
+
+    body.mobile-game-active #title {
+        flex: 0 0 auto;
+        margin-bottom: 8px;
+        font-size: 12px;
+        line-height: 1.35;
+    }
+
+    body.mobile-game-active #gamePanel {
+        display: flex;
+        flex: 1 1 auto;
+        flex-direction: column;
+        min-height: 0;
+    }
+
+    body.mobile-game-active #accountBar {
+        flex: 0 0 auto;
+        min-width: 0;
+        margin-bottom: 7px;
+    }
+
+    body.mobile-game-active #accountLabel {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    body.mobile-game-active #terminal {
+        display: flex;
+        flex: 1 1 auto;
+        flex-direction: column;
+        min-height: 0;
+        padding: 10px;
+    }
+
+    body.mobile-game-active #output {
+        flex: 1 1 auto;
+        width: 100%;
+        height: 0;
+        min-height: 0;
+        max-height: none;
+        overscroll-behavior: contain;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    body.mobile-game-active #commandForm {
+        flex: 0 0 auto;
+        align-items: center;
+        padding: 10px 0 max(2px, env(safe-area-inset-bottom));
+    }
+
+    body.mobile-game-active #prompt {
+        max-width: 42%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    body.mobile-game-active #commandInput {
+        min-height: 32px;
+        font-size: 16px;
+    }
+
+    body.mobile-game-active .terminal-note {
+        flex: 0 0 auto;
+        margin-top: 5px;
+    }
+
+    body.mobile-keyboard-open #title,
+    body.mobile-keyboard-open .terminal-note {
+        display: none;
+    }
+
+    body.mobile-keyboard-open #accountBar {
+        margin-bottom: 4px;
+    }
 }

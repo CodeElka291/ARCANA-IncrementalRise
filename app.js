@@ -34,6 +34,45 @@ const player = {
     name: "",
     get location() { return playerState?.location || "village"; }
 };
+let mobileViewportBaseHeight = window.visualViewport?.height || window.innerHeight;
+let mobileViewportUpdatePending = false;
+
+function updateMobileGameViewport() {
+    if (!window.matchMedia("(max-width: 600px)").matches || gamePanel.hidden) {
+        document.body.classList.remove("mobile-game-active", "mobile-keyboard-open");
+        document.documentElement.style.removeProperty("--game-viewport-height");
+        document.documentElement.style.removeProperty("--game-viewport-top");
+        return;
+    }
+
+    const viewport = window.visualViewport;
+    const height = viewport?.height || window.innerHeight;
+    const focused = document.activeElement === input;
+    if (!focused) mobileViewportBaseHeight = Math.max(window.innerHeight, height);
+    document.documentElement.style.setProperty("--game-viewport-height", `${height}px`);
+    document.documentElement.style.setProperty("--game-viewport-top", `${viewport?.offsetTop || 0}px`);
+    document.body.classList.add("mobile-game-active");
+    document.body.classList.toggle("mobile-keyboard-open", focused && mobileViewportBaseHeight - height > 120);
+}
+
+function scheduleMobileViewportUpdate() {
+    if (mobileViewportUpdatePending) return;
+    mobileViewportUpdatePending = true;
+    requestAnimationFrame(() => {
+        mobileViewportUpdatePending = false;
+        updateMobileGameViewport();
+    });
+}
+
+input.addEventListener("focus", () => {
+    const viewport = window.visualViewport;
+    mobileViewportBaseHeight = Math.max(window.innerHeight, viewport?.height || 0);
+    scheduleMobileViewportUpdate();
+});
+input.addEventListener("blur", scheduleMobileViewportUpdate);
+window.addEventListener("resize", scheduleMobileViewportUpdate);
+window.visualViewport?.addEventListener("resize", scheduleMobileViewportUpdate);
+window.visualViewport?.addEventListener("scroll", scheduleMobileViewportUpdate);
 
 function writeLine(text = "", className = "") {
     const line = document.createElement("p");
@@ -216,7 +255,6 @@ async function persistPlayerState() {
         if (error) throw error;
         if (!data) throw new Error("다른 탭에서 먼저 저장해 진행 상태가 바뀌었습니다. 최신 기록을 불러오도록 새로고침해 주세요.");
         saveRevision = Number(data.revision);
-        writeLine("[저장 완료] 진행 상태가 계정에 저장되었습니다.", "system");
     } finally {
         resolveSave();
     }
@@ -409,6 +447,7 @@ async function showGame(user) {
 
     activeUserId = user.id;
     gamePanel.hidden = true;
+    updateMobileGameViewport();
     authPanel.hidden = false;
     showAuthMessage("스토리 콘텐츠와 캐릭터 기록을 불러오는 중입니다.");
     try {
@@ -437,6 +476,7 @@ async function showGame(user) {
     authPanel.hidden = true;
     stopLoginMusic();
     gamePanel.hidden = false;
+    updateMobileGameViewport();
     accountLabel.textContent = user.email || name;
     output.replaceChildren();
     beginGame(name);
@@ -464,6 +504,7 @@ async function fetchGameContent(path, label) {
 function showLogin() {
     activeUserId = null;
     gamePanel.hidden = true;
+    updateMobileGameViewport();
     authPanel.hidden = false;
     player.name = "";
     playerState = null;
