@@ -18,8 +18,17 @@ const resendConfirmationButton = document.getElementById("resendConfirmationButt
 const characterNameField = document.getElementById("characterNameField");
 const characterNameInput = document.getElementById("characterName");
 const gamePanel = document.getElementById("gamePanel");
-const accountLabel = document.getElementById("accountLabel");
 const signOutButton = document.getElementById("signOutButton");
+const editorLink = document.getElementById("editorLink");
+const editorAccessDialog = document.getElementById("editorAccessDialog");
+const editorAccessForm = document.getElementById("editorAccessForm");
+const editorPasscodeInput = document.getElementById("editorPasscode");
+const editorPasscodeConfirmInput = document.getElementById("editorPasscodeConfirm");
+const editorPasscodeConfirmLabel = document.getElementById("editorPasscodeConfirmLabel");
+const editorAccessDescription = document.getElementById("editorAccessDescription");
+const editorAccessMessage = document.getElementById("editorAccessMessage");
+const EDITOR_PASSCODE_KEY = "arcana.editor-passcode";
+const EDITOR_SESSION_KEY = "arcana.editor-authorized";
 
 let authMode = "login";
 let activeUserId = null;
@@ -36,6 +45,60 @@ const player = {
 };
 let mobileViewportBaseHeight = window.visualViewport?.height || window.innerHeight;
 let mobileViewportUpdatePending = false;
+let settingEditorPasscode = false;
+
+async function hashEditorPasscode(passcode, salt) {
+    const bytes = new TextEncoder().encode(salt + ":" + passcode);
+    const digest = await window.crypto.subtle.digest("SHA-256", bytes);
+    return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function openEditorAccessDialog() {
+    settingEditorPasscode = !localStorage.getItem(EDITOR_PASSCODE_KEY);
+    editorPasscodeInput.value = "";
+    editorPasscodeConfirmInput.value = "";
+    editorPasscodeConfirmInput.required = settingEditorPasscode;
+    editorPasscodeConfirmInput.hidden = !settingEditorPasscode;
+    editorPasscodeConfirmLabel.hidden = !settingEditorPasscode;
+    editorPasscodeInput.autocomplete = settingEditorPasscode ? "new-password" : "current-password";
+    editorAccessDescription.textContent = settingEditorPasscode
+        ? "처음 사용합니다. 편집기에서 사용할 암호를 6자 이상으로 설정하세요."
+        : "설정한 편집자 암호를 입력하면 스토리 편집기로 이동합니다.";
+    editorAccessMessage.textContent = "";
+    editorAccessMessage.classList.remove("error");
+    editorAccessDialog.showModal();
+    editorPasscodeInput.focus();
+}
+
+editorLink.addEventListener("click", (event) => {
+    event.preventDefault();
+    openEditorAccessDialog();
+});
+
+document.getElementById("editorAccessCancel").addEventListener("click", () => editorAccessDialog.close());
+editorAccessForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const passcode = editorPasscodeInput.value;
+    try {
+        if (settingEditorPasscode) {
+            if (passcode.length < 6) throw new Error("암호는 6자 이상이어야 합니다.");
+            if (passcode !== editorPasscodeConfirmInput.value) throw new Error("암호가 서로 다릅니다.");
+            const salt = Array.from(window.crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, "0")).join("");
+            const hash = await hashEditorPasscode(passcode, salt);
+            localStorage.setItem(EDITOR_PASSCODE_KEY, JSON.stringify({ salt, hash }));
+        } else {
+            const saved = JSON.parse(localStorage.getItem(EDITOR_PASSCODE_KEY));
+            const hash = await hashEditorPasscode(passcode, saved.salt);
+            if (hash !== saved.hash) throw new Error("암호가 올바르지 않습니다.");
+        }
+        sessionStorage.setItem(EDITOR_SESSION_KEY, "1");
+        editorAccessDialog.close();
+        window.location.assign(editorLink.href);
+    } catch (error) {
+        editorAccessMessage.textContent = error.message || "편집자 확인을 완료하지 못했습니다.";
+        editorAccessMessage.classList.add("error");
+    }
+});
 
 function updateMobileGameViewport() {
     if (!window.matchMedia("(max-width: 600px)").matches || gamePanel.hidden) {
@@ -477,7 +540,6 @@ async function showGame(user) {
     stopLoginMusic();
     gamePanel.hidden = false;
     updateMobileGameViewport();
-    accountLabel.textContent = user.email || name;
     output.replaceChildren();
     beginGame(name);
     input.focus();
@@ -667,3 +729,5 @@ function initializeSupabase() {
 
 setAuthMode("login");
 loadMusicSettings();
+
+if (new URLSearchParams(window.location.search).has("editor")) openEditorAccessDialog();

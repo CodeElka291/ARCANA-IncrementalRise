@@ -3,6 +3,11 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script>
+        if (sessionStorage.getItem("arcana.editor-authorized") !== "1") {
+            window.location.replace("../?editor=1");
+        }
+    </script>
     <title>ARCANA 스토리 편집기</title>
     <link rel="stylesheet" href="editor.css?v=4">
 </head>
