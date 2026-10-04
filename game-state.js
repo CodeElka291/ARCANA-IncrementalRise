@@ -1,7 +1,9 @@
 (function (global) {
     "use strict";
 
-    function createDefault(name, story) {
+    function createDefault(name, story, gameplay = {}) {
+        const unlockedStations = Object.fromEntries(Object.entries(gameplay.stations || {}).filter(([, station]) => station.unlockedByDefault === true).map(([id]) => [id, true]));
+        const discoveredRecipes = Object.fromEntries(Object.entries(gameplay.recipes || {}).filter(([, recipe]) => recipe.discoveredByDefault !== false).map(([id]) => [id, true]));
         return {
             schemaVersion: 1,
             name,
@@ -16,6 +18,10 @@
             gearDurability: {},
             combat: null,
             unlockedLocations: { village: true, forest: true, market: true, apothecary: true, weapon_shop: true },
+            unlockedStations,
+            discoveredRecipes,
+            activeStation: null,
+            stationIngredients: {},
             quests: {},
             questProgress: {},
             questSteps: {},
@@ -25,11 +31,15 @@
         };
     }
 
-    function normalize(saved, name, story) {
+    function normalize(saved, name, story, gameplay = {}) {
         if (!saved || typeof saved !== "object" || Array.isArray(saved)) throw new Error("저장 데이터 형식이 올바르지 않습니다.");
-        const defaults = createDefault(name, story);
+        const defaults = createDefault(name, story, gameplay);
         const state = { ...defaults, ...saved, name: typeof saved.name === "string" ? saved.name : name };
-        for (const key of ["inventory", "equipment", "gearDurability", "unlockedLocations", "quests", "questProgress", "questSteps", "flags", "relations"]) {
+        state.unlockedStations = { ...defaults.unlockedStations, ...(saved.unlockedStations || {}) };
+        state.discoveredRecipes = { ...defaults.discoveredRecipes, ...(saved.discoveredRecipes || {}) };
+        state.stationIngredients = saved.stationIngredients && typeof saved.stationIngredients === "object" && !Array.isArray(saved.stationIngredients) ? saved.stationIngredients : {};
+        if (typeof state.activeStation !== "string" || !gameplay.stations?.[state.activeStation]) state.activeStation = null;
+        for (const key of ["inventory", "equipment", "gearDurability", "unlockedLocations", "unlockedStations", "discoveredRecipes", "quests", "questProgress", "questSteps", "flags", "relations"]) {
             if (!state[key] || typeof state[key] !== "object" || Array.isArray(state[key])) throw new Error(`저장 데이터 '${key}' 형식이 올바르지 않습니다.`);
         }
         if (state.combat !== null && (!state.combat || typeof state.combat.monsterId !== "string" || !Number.isFinite(state.combat.hp) || state.combat.hp <= 0)) {

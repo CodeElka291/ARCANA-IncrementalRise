@@ -93,7 +93,8 @@ function writeLine(text = "", className = "") {
 
 function setPrompt() {
     const locationName = gameplayContent?.locations?.[player.location]?.name || player.location;
-    prompt.textContent = `${player.name}@${locationName}>`;
+    const station = gameplayContent?.stations?.[playerState?.activeStation];
+    prompt.textContent = `${player.name}@${locationName}${station ? `[${station.name}]` : ""}>`;
     input.placeholder = "명령어를 입력하고 Enter를 누르세요";
 }
 
@@ -133,10 +134,56 @@ function showHelp() {
         "",
         "[이야기]",
         "  선택 <번호>  현재 이야기의 선택지를 선택합니다",
-        "  예) 선택 1",
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    ].join("\n");
-    writeLine(help, "help-block");
+        "  예) 선택 1"
+    ];
+    const availableStations = Object.entries(gameplayContent?.stations || {}).filter(([id, station]) =>
+        station.unlockedByDefault === true || playerState?.unlockedStations?.[id] === true
+        || (station.activationItemId && playerState?.inventory?.[station.activationItemId] > 0)
+    );
+    if (availableStations.length) {
+        help.push("", "[변환 장치]");
+        for (const [, station] of availableStations) help.push(`  ${station.name}  장치에 들어갑니다`);
+        help.push("  장치 안: 레시피 / 넣기 <아이템> (한 번에 하나씩) / 나가기");
+    }
+    help.push("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    writeLine(help.join("\n"), "help-block");
+}
+
+function parseStationOfferings(raw) {
+    return [{ name: raw.trim(), quantity: 1 }];
+}
+
+function isStationName(command) {
+    const normalize = (value) => String(value).trim().toLowerCase().replace(/\s+/g, "");
+    const query = normalize(command);
+    return Object.entries(gameplayContent?.stations || {}).find(([id, station]) =>
+        normalize(id) === query || normalize(station.name || "") === query
+        || (Array.isArray(station.aliases) && station.aliases.some((alias) => normalize(alias) === query))
+    )?.[0] || null;
+}
+
+function handleStationCommand(command, normalized) {
+    if (["나가기", "닫기", "exit", "leave"].includes(normalized)) {
+        ArcanaGameplayEngine.leaveStation(gameplayContent, playerState).messages.forEach((message) => writeLine(message));
+        setPrompt();
+        return;
+    }
+    if (["도움말", "help", "?"].includes(normalized)) {
+        const station = gameplayContent.stations[playerState.activeStation];
+        writeLine(`${station.name}: '레시피'로 조합법을 보고, '넣기 아이템명'으로 재료를 하나씩 넣으세요. 필요한 개수만큼 반복하면 조합됩니다. '나가기'로 장치를 나옵니다.`);
+        return;
+    }
+    if (["레시피", "목록", "recipes"].includes(normalized)) {
+        ArcanaGameplayEngine.listStationRecipes(gameplayContent, playerState).messages.forEach((message) => writeLine(message));
+        return;
+    }
+    if (normalized.startsWith("넣기 ") || normalized.startsWith("insert ")) {
+        const raw = command.slice(command.indexOf(" ") + 1).trim();
+        const result = ArcanaGameplayEngine.submitStationIngredients(gameplayContent, playerState, parseStationOfferings(raw));
+        result.messages.forEach((message) => writeLine(message));
+        return;
+    }
+    writeLine("장치 안에서는 '레시피', '넣기 <아이템>' (한 번에 하나씩), '나가기'를 사용할 수 있습니다.");
 }
 
 function lookAround() {
@@ -328,7 +375,9 @@ function showPlayerStatus() {
     const armorReady = armorItem && (armorItem.durability <= 0 || (typeof armor === "string" ? armorItem.durability : armor.durability) > 0);
     const attack = 4 + Math.floor((playerState.level - 1) / 3)
         + (weaponReady ? weaponItem.attack || 0 : 0)
-        + (armorReady ? armorItem.attack || 0 : 0);
+        + (armorReady ? armorItem.attack || 0 : 0)
+        + (weaponReady ? weaponItem.elementalAttack || 0 : 0)
+        + (armorReady ? armorItem.elementalAttack || 0 : 0);
     const defense = (armorReady ? armorItem.defense || 0 : 0)
         + (weaponReady ? weaponItem.defense || 0 : 0);
     writeLine(`[상태] ${playerState.name} | 레벨 ${playerState.level} (${playerState.xp}/${playerState.level * 20} XP) | 체력 ${playerState.hp}/${playerState.maxHp} | 공격 ${attack} | 방어 ${defense} | 골드 ${playerState.gold}`);
@@ -352,6 +401,13 @@ function showPlayerStatus() {
             return `${slot === "weapon" ? "무기" : "방어구"}: ${item?.name || itemId}${item?.durability > 0 ? ` (${durability}/${item.durability})` : ""}`;
         });
         writeLine(`장비: ${labels.join(" | ")}`);
+        const elemental = equipment.flatMap(([slot, gear]) => {
+            const itemId = typeof gear === "string" ? gear : gear.itemId;
+            const item = gameplayContent.items[itemId];
+            const ready = item && (item.durability <= 0 || (typeof gear === "string" ? item.durability : gear.durability) > 0);
+            return ready && item.elementalAttack > 0 ? [`${slot === "weapon" ? "무기" : "방어구"}: ${item.element} 공격력 +${item.elementalAttack}`] : [];
+        });
+        if (elemental.length) writeLine(`속성: ${elemental.join(" | ")}`);
     }
 }
 
@@ -403,7 +459,7 @@ async function loadPlayerState(user, fallbackName) {
         if (error) throw error;
 
         if (!data) {
-            const freshState = ArcanaGameState.createDefault(fallbackName, storyContent);
+            const freshState = ArcanaGameState.createDefault(fallbackName, storyContent, gameplayContent);
             let saved;
             let saveError;
             try {
@@ -432,7 +488,7 @@ async function loadPlayerState(user, fallbackName) {
         }
 
         saveRevision = data.revision;
-        const normalized = ArcanaGameState.normalize(data.state, fallbackName, storyContent);
+        const normalized = ArcanaGameState.normalize(data.state, fallbackName, storyContent, gameplayContent);
         // Loading a content update is read-only. Persist the new content version
         // with the next gameplay change so two tabs cannot race during login.
         return normalized;
@@ -444,6 +500,19 @@ async function runCommand(command) {
     const normalized = command.trim().toLowerCase();
 
     if (!normalized) {
+        return;
+    }
+
+    if (playerState.activeStation) {
+        handleStationCommand(command, normalized);
+        return;
+    }
+
+    const stationId = isStationName(command);
+    if (stationId) {
+        const result = ArcanaGameplayEngine.enterStation(gameplayContent, playerState, stationId);
+        result.messages.forEach((message) => writeLine(message));
+        setPrompt();
         return;
     }
 

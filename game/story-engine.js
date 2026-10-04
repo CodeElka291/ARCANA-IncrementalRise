@@ -1,8 +1,8 @@
 (function (global) {
     "use strict";
 
-    const CONDITION_TYPES = new Set(["flagEquals", "levelAtLeast", "hasItem", "questStatus", "locationIs"]);
-    const EFFECT_TYPES = new Set(["setFlag", "startQuest", "advanceQuest", "completeQuest", "grantItem", "removeItem", "grantXp", "grantGold", "unlockLocation", "changeRelation"]);
+    const CONDITION_TYPES = new Set(["flagEquals", "levelAtLeast", "hasItem", "questStatus", "locationIs", "stationUnlocked", "recipeKnown"]);
+    const EFFECT_TYPES = new Set(["setFlag", "startQuest", "advanceQuest", "completeQuest", "grantItem", "removeItem", "grantXp", "grantGold", "unlockLocation", "unlockStation", "discoverRecipe", "changeRelation"]);
 
     function validate(story, gameplay) {
         const errors = [];
@@ -55,7 +55,8 @@
             questStatus: ["questId", "status"], locationIs: ["location"], setFlag: ["key", "value"],
             startQuest: ["questId"], advanceQuest: ["questId", "step"], completeQuest: ["questId"],
             grantItem: ["itemId", "quantity"], removeItem: ["itemId", "quantity"], grantXp: ["amount"],
-            grantGold: ["amount"], unlockLocation: ["location"], changeRelation: ["npcId", "amount"]
+            grantGold: ["amount"], unlockLocation: ["location"], unlockStation: ["stationId"], discoverRecipe: ["recipeId"],
+            stationUnlocked: ["stationId"], recipeKnown: ["recipeId"], changeRelation: ["npcId", "amount"]
         };
         for (const rule of rules) {
             if (!rule || !allowed.has(rule.type)) {
@@ -71,7 +72,9 @@
                     hasItem: ["items", "itemId"], grantItem: ["items", "itemId"], removeItem: ["items", "itemId"],
                     questStatus: ["quests", "questId"], startQuest: ["quests", "questId"],
                     advanceQuest: ["quests", "questId"], completeQuest: ["quests", "questId"],
-                    locationIs: ["locations", "location"], unlockLocation: ["locations", "location"]
+                    locationIs: ["locations", "location"], unlockLocation: ["locations", "location"],
+                    stationUnlocked: ["stations", "stationId"], unlockStation: ["stations", "stationId"],
+                    recipeKnown: ["recipes", "recipeId"], discoverRecipe: ["recipes", "recipeId"]
                 }[rule.type];
                 if (references && rule[references[1]] && !gameplay[references[0]]?.[rule[references[1]]]) {
                     errors.push(`${path}에서 게임 데이터 '${rule[references[1]]}'을(를) 찾을 수 없습니다.`);
@@ -91,6 +94,8 @@
             case "hasItem": return hasItem(state, condition.itemId, condition.quantity || 1);
             case "questStatus": return state.quests[condition.questId] === condition.status;
             case "locationIs": return state.location === condition.location;
+            case "stationUnlocked": return state.unlockedStations?.[condition.stationId] === true;
+            case "recipeKnown": return state.discoveredRecipes?.[condition.recipeId] === true;
             default: throw new Error(`지원하지 않는 조건: ${condition.type}`);
         }
     }
@@ -143,6 +148,8 @@
                 break;
             case "grantGold": state.gold += effect.amount; break;
             case "unlockLocation": state.unlockedLocations[effect.location] = true; break;
+            case "unlockStation": state.unlockedStations[effect.stationId] = true; break;
+            case "discoverRecipe": state.discoveredRecipes[effect.recipeId] = true; break;
             case "changeRelation": state.relations[effect.npcId] = (state.relations[effect.npcId] || 0) + effect.amount; break;
             default: throw new Error(`지원하지 않는 효과: ${effect.type}`);
         }

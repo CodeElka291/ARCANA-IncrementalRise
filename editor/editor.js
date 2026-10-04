@@ -9,6 +9,7 @@ const storyWorkspace = $("#storyWorkspace");
 const worldWorkspace = $("#worldWorkspace");
 const monsterWorkspace = $("#monsterWorkspace");
 const itemWorkspace = $("#itemWorkspace");
+const stationWorkspace = $("#stationWorkspace");
 const inspector = $("#inspector");
 const nodeForm = $("#nodeForm");
 const choicesEditor = $("#choicesEditor");
@@ -32,6 +33,8 @@ let gameplayDirty = false;
 let activeLocationId = null;
 let activeMonsterId = null;
 let activeItemId = null;
+let activeStationId = null;
+let activeRecipeId = null;
 
 function setStatus(message, isError = false) {
     validationTitle.textContent = message;
@@ -141,15 +144,17 @@ function validateStory() {
         if (location.ambientAudioId && !audioTracks.some((track) => track.id === location.ambientAudioId && track.type === "ambience")) errors.push(`지역 '${locationId}' 배경음 '${location.ambientAudioId}'을(를) 오디오 목록에서 찾을 수 없습니다.`);
     }
     for (const [itemId, item] of Object.entries(gameplay.items || {})) {
+        if (item.upgradeable === true && !item.equipmentSlot) errors.push("강화 가능 설정은 장착 부위가 있는 장비에만 사용할 수 있습니다.");
         if (!item.name?.trim()) errors.push(`아이템 '${itemId}' 표시 이름이 필요합니다.`);
         if (!["consumable", "weapon", "armor", "material", "quest"].includes(item.type)) errors.push(`아이템 '${itemId}' 종류가 올바르지 않습니다.`);
         if (item.aliases !== undefined && !Array.isArray(item.aliases)) errors.push(`아이템 '${itemId}' aliases는 배열이어야 합니다.`);
         if (item.price !== undefined && (!Number.isInteger(item.price) || item.price < 0)) errors.push(`아이템 '${itemId}' 구매 가격은 0 이상의 정수여야 합니다.`);
         if (item.sellPrice !== undefined && (!Number.isInteger(item.sellPrice) || item.sellPrice < 0)) errors.push(`아이템 '${itemId}' 판매 가격은 0 이상의 정수여야 합니다.`);
-        for (const stat of ["heal", "attack", "defense", "durability"]) {
+        for (const stat of ["heal", "attack", "elementalAttack", "defense", "durability"]) {
             if (item[stat] !== undefined && (!Number.isInteger(item[stat]) || item[stat] < 0)) errors.push(`아이템 '${itemId}' ${stat} 값은 0 이상의 정수여야 합니다.`);
         }
         if (item.equipmentSlot && !["weapon", "armor"].includes(item.equipmentSlot)) errors.push(`아이템 '${itemId}' 장착 부위가 올바르지 않습니다.`);
+        if (item.elementalAttack > 0 && (!item.element?.trim() || item.type !== "weapon")) errors.push(`아이템 '${itemId}' 속성 공격력은 속성 이름이 있는 무기에만 설정할 수 있습니다.`);
         if (["weapon", "armor"].includes(item.type) && item.equipmentSlot !== item.type) errors.push(`아이템 '${itemId}' 종류와 장착 부위를 일치시켜 주세요.`);
         if (item.equipmentSlot && !["weapon", "armor"].includes(item.type)) errors.push(`아이템 '${itemId}'은 무기나 방어구만 장착 부위를 가질 수 있습니다.`);
     }
@@ -171,6 +176,66 @@ function validateStory() {
             if (!Number.isFinite(drop.chance) || drop.chance < 0 || drop.chance > 1) errors.push(`몬스터 '${monsterId}' 드롭 ${index + 1} 확률은 0~1 사이여야 합니다.`);
             if (!Number.isInteger(drop.quantity) || drop.quantity < 1) errors.push(`몬스터 '${monsterId}' 드롭 ${index + 1} 수량은 1 이상의 정수여야 합니다.`);
         }
+    }
+    for (const [stationId, station] of Object.entries(gameplay.stations || {})) {
+        if (!station.name?.trim()) errors.push(`장치 '${stationId}' 표시 이름이 필요합니다.`);
+        if (station.aliases !== undefined && !Array.isArray(station.aliases)) errors.push(`장치 '${stationId}' aliases는 배열이어야 합니다.`);
+        if (station.location && !gameplay.locations?.[station.location]) errors.push(`장치 '${stationId}' 위치 '${station.location}'을(를) 찾을 수 없습니다.`);
+        if (station.activationItemId && !gameplay.items?.[station.activationItemId]) errors.push(`장치 '${stationId}' 해금 아이템 '${station.activationItemId}'을(를) 찾을 수 없습니다.`);
+        if (station.openingReward && !gameplay.items?.[station.openingReward.itemId]) errors.push(`장치 '${stationId}' 개방 보상 아이템 '${station.openingReward.itemId}'을(를) 찾을 수 없습니다.`);
+        if (station.openingReward && (!Number.isInteger(station.openingReward.quantity) || station.openingReward.quantity < 1)) errors.push(`장치 '${stationId}' 개방 보상 수량은 1 이상의 정수여야 합니다.`);
+    }
+    const stationCommands = new Map();
+    const reservedStationCommands = new Set(["보기", "상태", "소지품", "이야기", "도움말", "탐험", "공격", "방어", "도망", "사용", "구매", "판매", "목록", "이동", "장착", "해제", "선택", "넣기", "레시피", "나가기"]);
+    for (const [stationId, station] of Object.entries(gameplay.stations || {})) {
+        const names = [stationId, station.name, ...(station.aliases || [])].filter(Boolean).map((value) => String(value).trim().toLowerCase());
+        for (const name of names) {
+            if (reservedStationCommands.has(name)) errors.push(`장치 '${stationId}' 명령어 '${name}'은 기본 명령어와 겹칩니다.`);
+            const previous = stationCommands.get(name);
+            if (previous && previous !== stationId) errors.push(`장치 명령어 '${name}'이(가) '${previous}'과 '${stationId}'에서 중복됩니다.`);
+            stationCommands.set(name, stationId);
+            for (const [locationId, location] of Object.entries(gameplay.locations || {})) {
+                const locationNames = [locationId, location.name, ...(location.aliases || [])].filter(Boolean).map((value) => String(value).trim().toLowerCase());
+                if (locationNames.includes(name)) errors.push(`장치 명령어 '${name}'이(가) 지역 '${locationId}'과 겹칩니다.`);
+            }
+        }
+    }
+    for (const [recipeId, recipe] of Object.entries(gameplay.recipes || {})) {
+        if (!recipe.name?.trim()) errors.push(`레시피 '${recipeId}' 이름이 필요합니다.`);
+        if (!gameplay.stations?.[recipe.stationId]) errors.push(`레시피 '${recipeId}' 장치 '${recipe.stationId}'을(를) 찾을 수 없습니다.`);
+        if (!Array.isArray(recipe.ingredients) || recipe.ingredients.length === 0) errors.push(`레시피 '${recipeId}'에 재료가 하나 이상 필요합니다.`);
+        for (const [index, ingredient] of (recipe.ingredients || []).entries()) {
+            if (!gameplay.items?.[ingredient.itemId]) errors.push(`레시피 '${recipeId}' 재료 ${index + 1} 아이템 '${ingredient.itemId}'을(를) 찾을 수 없습니다.`);
+            if (!Number.isInteger(ingredient.quantity) || ingredient.quantity < 1) errors.push(`레시피 '${recipeId}' 재료 ${index + 1} 수량은 1 이상의 정수여야 합니다.`);
+        }
+        const validOutput = (output, path) => {
+            if (!gameplay.items?.[output.itemId]) errors.push(`레시피 '${recipeId}' ${path} 아이템 '${output.itemId}'을(를) 찾을 수 없습니다.`);
+            if (!Number.isInteger(output.quantity) || output.quantity < 1) errors.push(`레시피 '${recipeId}' ${path} 수량은 1 이상의 정수여야 합니다.`);
+        };
+        if (recipe.outcomes !== undefined) {
+            if (!Array.isArray(recipe.outcomes) || !recipe.outcomes.length) errors.push(`레시피 '${recipeId}' 무작위 결과가 하나 이상 필요합니다.`);
+            for (const [index, outcome] of (recipe.outcomes || []).entries()) {
+                validOutput(outcome, `결과 ${index + 1}`);
+                if (!Number.isFinite(outcome.weight) || outcome.weight <= 0) errors.push(`레시피 '${recipeId}' 결과 ${index + 1} 가중치는 0보다 커야 합니다.`);
+            }
+        } else if (recipe.output) validOutput(recipe.output, "결과");
+        else errors.push(`레시피 '${recipeId}'에 고정 결과 또는 무작위 결과가 필요합니다.`);
+    }
+    for (const [recipeId, recipe] of Object.entries(gameplay.recipes || {})) {
+        const equipmentInputs = (recipe.ingredients || []).filter((entry) => gameplay.items?.[entry.itemId]?.equipmentSlot);
+        const equipmentOutputs = (recipe.outcomes || (recipe.output ? [recipe.output] : [])).filter((entry) => gameplay.items?.[entry.itemId]?.equipmentSlot);
+        if (equipmentInputs.length && equipmentOutputs.length) {
+            for (const input of equipmentInputs) if (gameplay.items[input.itemId].upgradeable !== true) errors.push("장비 변환 레시피의 입력 장비를 강화 가능으로 설정하세요.");
+            for (const output of equipmentOutputs) if (gameplay.items[output.itemId].upgradeable === true) errors.push("1회 강화 결과 장비의 강화 가능 설정을 해제하세요.");
+        }
+    }
+    const recipeSignatures = new Map();
+    for (const [recipeId, recipe] of Object.entries(gameplay.recipes || {})) {
+        const ingredients = {};
+        for (const entry of recipe.ingredients || []) ingredients[entry.itemId] = (ingredients[entry.itemId] || 0) + entry.quantity;
+        const signature = recipe.stationId + "|" + Object.entries(ingredients).sort(([a], [b]) => a.localeCompare(b)).map(([id, quantity]) => id + ":" + quantity).join("|");
+        if (recipeSignatures.has(signature)) errors.push("같은 장치에 재료 구성이 중복된 레시피가 있습니다.");
+        recipeSignatures.set(signature, recipeId);
     }
     return errors;
 }
@@ -901,6 +966,7 @@ function renderItemList() {
         if (Number.isInteger(item.price)) stats.push(`구매 ${item.price}G`);
         if (item.heal) stats.push(`회복 ${item.heal}`);
         if (item.attack) stats.push(`공격 +${item.attack}`);
+        if (item.elementalAttack) stats.push(`${item.element || "속성"} +${item.elementalAttack}`);
         if (item.defense) stats.push(`방어 +${item.defense}`);
         if (item.durability) stats.push(`내구 ${item.durability}`);
         summary.textContent = `${item.type || "item"} · ${stats.join(" · ") || "능력치 없음"}`;
@@ -912,6 +978,12 @@ function renderItemList() {
 
 function hasItemReferences(itemId) {
     if (Object.values(gameplay.locations || {}).some((location) => location.resourceItemId === itemId || (location.shopItems || []).includes(itemId))) return true;
+    if (Object.values(gameplay.stations || {}).some((station) => station.activationItemId === itemId || station.openingReward?.itemId === itemId)) return true;
+    if (Object.values(gameplay.recipes || {}).some((recipe) =>
+        (recipe.ingredients || []).some((ingredient) => ingredient.itemId === itemId)
+        || recipe.output?.itemId === itemId
+        || (recipe.outcomes || []).some((outcome) => outcome.itemId === itemId)
+    )) return true;
     return Object.values(story?.nodes || {}).some((node) => {
         const conditions = [...(node.conditions || []), ...(node.choices || []).flatMap((choice) => choice.conditions || [])];
         const effects = (node.choices || []).flatMap((choice) => choice.effects || []);
@@ -946,8 +1018,10 @@ function renderItemInspector() {
     $("#itemPrice").value = item.price ?? "";
     $("#itemSellPrice").value = item.sellPrice ?? "";
     $("#itemEquipmentSlot").value = item.equipmentSlot || "";
-    for (const field of ["heal", "attack", "defense", "durability"]) $(`#item${field[0].toUpperCase()}${field.slice(1)}`).value = item[field] ?? 0;
-    $("#deleteItemButton").title = hasItemReferences(activeItemId) ? "지역 상점, 탐험 보상 또는 스토리 선택지에서 사용 중인 아이템입니다." : "";
+    $("#itemUpgradeable").checked = item.upgradeable === true;
+    for (const field of ["heal", "attack", "elementalAttack", "defense", "durability"]) $(`#item${field[0].toUpperCase()}${field.slice(1)}`).value = item[field] ?? 0;
+    $("#itemElement").value = item.element || "";
+    $("#deleteItemButton").title = hasItemReferences(activeItemId) ? "상점·탐험·변환 레시피 또는 스토리에서 사용 중인 아이템입니다." : "";
 
     $("#itemName").oninput = () => {
         item.name = $("#itemName").value;
@@ -955,18 +1029,22 @@ function renderItemInspector() {
         markGameplayDirty();
         renderItemList();
         renderLocationInspector();
+        renderStationInspector();
     };
     $("#itemType").onchange = () => {
         item.type = $("#itemType").value;
         if (item.type === "weapon") item.equipmentSlot = "weapon";
         else if (item.type === "armor") item.equipmentSlot = "armor";
         else item.equipmentSlot = null;
+        if (!item.equipmentSlot) item.upgradeable = false;
+        $("#itemUpgradeable").checked = item.upgradeable === true;
         $("#itemEquipmentSlot").value = item.equipmentSlot || "";
         markGameplayDirty();
         renderItemList();
         showValidation();
     };
     $("#itemDescription").oninput = () => { item.description = $("#itemDescription").value; markGameplayDirty(); };
+    $("#itemElement").oninput = () => { item.element = $("#itemElement").value.trim() || null; markGameplayDirty(); renderItemList(); showValidation(); };
     $("#itemAliases").oninput = () => {
         item.aliases = $("#itemAliases").value.split(",").map((alias) => alias.trim()).filter(Boolean);
         markGameplayDirty();
@@ -979,15 +1057,23 @@ function renderItemInspector() {
             markGameplayDirty();
             renderItemList();
             renderLocationInspector();
+            renderStationInspector();
             showValidation();
         };
     }
     $("#itemEquipmentSlot").onchange = () => {
         item.equipmentSlot = $("#itemEquipmentSlot").value || null;
+        if (!item.equipmentSlot) item.upgradeable = false;
+        $("#itemUpgradeable").checked = item.upgradeable === true;
         markGameplayDirty();
         showValidation();
     };
-    for (const field of ["heal", "attack", "defense", "durability"]) {
+    $("#itemUpgradeable").onchange = () => {
+        item.upgradeable = $("#itemUpgradeable").checked;
+        markGameplayDirty();
+        showValidation();
+    };
+    for (const field of ["heal", "attack", "elementalAttack", "defense", "durability"]) {
         const id = `item${field[0].toUpperCase()}${field.slice(1)}`;
         $(`#${id}`).oninput = () => {
             item[field] = Number($(`#${id}`).value);
@@ -1008,6 +1094,7 @@ function addItem() {
     renderItemList();
     renderItemInspector();
     renderLocationInspector();
+    renderStationInspector();
     showValidation();
 }
 
@@ -1019,12 +1106,297 @@ function deleteItem() {
     renderItemList();
     renderItemInspector();
     renderLocationInspector();
+    renderStationInspector();
     renderQuestTriggers();
     showValidation();
 }
 
+function hasStationReferences(stationId) {
+    if (Object.values(gameplay.recipes || {}).some((recipe) => recipe.stationId === stationId)) return true;
+    return Object.values(story?.nodes || {}).some((node) => {
+        const conditions = [...(node.conditions || []), ...(node.choices || []).flatMap((choice) => choice.conditions || [])];
+        const effects = (node.choices || []).flatMap((choice) => choice.effects || []);
+        return [...conditions, ...effects].some((rule) => rule.stationId === stationId);
+    });
+}
+
+function hasRecipeReferences(recipeId) {
+    return Object.values(story?.nodes || {}).some((node) => {
+        const conditions = [...(node.conditions || []), ...(node.choices || []).flatMap((choice) => choice.conditions || [])];
+        const effects = (node.choices || []).flatMap((choice) => choice.effects || []);
+        return [...conditions, ...effects].some((rule) => rule.recipeId === recipeId);
+    });
+}
+
+function makeSelect(options, selectedValue, emptyLabel) {
+    const select = document.createElement("select");
+    if (emptyLabel !== undefined) {
+        const empty = document.createElement("option");
+        empty.value = "";
+        empty.textContent = emptyLabel;
+        select.append(empty);
+    }
+    for (const [value, label] of options) {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = label;
+        select.append(option);
+    }
+    select.value = selectedValue || "";
+    return select;
+}
+
+function renderStationList() {
+    const list = $("#stationList");
+    list.replaceChildren();
+    for (const [id, station] of Object.entries(gameplay.stations || {})) {
+        const card = document.createElement("button");
+        card.type = "button";
+        card.className = `monster-card${id === activeStationId ? " selected" : ""}`;
+        const name = document.createElement("strong");
+        name.textContent = station.name || id;
+        const details = document.createElement("small");
+        const locationName = gameplay.locations?.[station.location]?.name || (station.location ? station.location : "장소 제한 없음");
+        const recipeCount = Object.values(gameplay.recipes || {}).filter((recipe) => recipe.stationId === id).length;
+        details.textContent = `${locationName} · 레시피 ${recipeCount}개`;
+        card.append(name, details);
+        card.addEventListener("click", () => {
+            activeStationId = id;
+            const recipe = Object.entries(gameplay.recipes || {}).find(([, value]) => value.stationId === id)?.[0];
+            activeRecipeId = recipe || null;
+            renderStationList();
+            renderStationInspector();
+        });
+        list.append(card);
+    }
+}
+
+function renderRecipeList(stationId) {
+    const list = $("#stationRecipeList");
+    list.replaceChildren();
+    for (const [id, recipe] of Object.entries(gameplay.recipes || {}).filter(([, value]) => value.stationId === stationId)) {
+        const card = document.createElement("button");
+        card.type = "button";
+        card.className = `monster-card${id === activeRecipeId ? " selected" : ""}`;
+        const name = document.createElement("strong");
+        name.textContent = recipe.name || id;
+        const summary = document.createElement("small");
+        const inputText = (recipe.ingredients || []).map((entry) => `${gameplay.items?.[entry.itemId]?.name || entry.itemId} x${entry.quantity}`).join(" + ");
+        const output = recipe.outcomes?.length ? "무작위 결과" : gameplay.items?.[recipe.output?.itemId]?.name || recipe.output?.itemId || "결과 미설정";
+        summary.textContent = `${inputText} → ${output}`;
+        card.append(name, summary);
+        card.addEventListener("click", () => {
+            activeRecipeId = id;
+            renderRecipeList(stationId);
+            renderRecipeInspector();
+        });
+        list.append(card);
+    }
+}
+
+function renderStationInspector() {
+    const station = gameplay?.stations?.[activeStationId];
+    const empty = !station;
+    $("#stationInspectorEmpty").hidden = !empty;
+    $("#stationEditor").hidden = empty;
+    $("#deleteStationButton").disabled = empty || hasStationReferences(activeStationId);
+    if (empty) {
+        $("#stationInspectorTitle").textContent = "장치 선택";
+        $("#stationInspectorSubtitle").textContent = "목록에서 장치를 선택하세요.";
+        $("#stationRecipeList").replaceChildren();
+        $("#recipeEditor").hidden = true;
+        $("#recipeInspectorEmpty").hidden = false;
+        return;
+    }
+    $("#stationInspectorTitle").textContent = station.name || "장치 설정";
+    $("#stationInspectorSubtitle").textContent = activeStationId;
+    $("#stationId").value = activeStationId;
+    $("#stationName").value = station.name || "";
+    $("#stationAliases").value = (station.aliases || []).join(", ");
+    const locationSelect = makeSelect(Object.entries(gameplay.locations || {}).map(([id, value]) => [id, `${value.name || id} · ${id}`]), station.location, "어디서나 사용 가능");
+    $("#stationLocation").replaceWith(locationSelect);
+    locationSelect.id = "stationLocation";
+    const itemOptions = Object.entries(gameplay.items || {}).map(([id, item]) => [id, `${item.name || id} · ${id}`]);
+    const activationSelect = makeSelect(itemOptions, station.activationItemId, "열쇠 없이 사용");
+    $("#stationActivationItem").replaceWith(activationSelect);
+    activationSelect.id = "stationActivationItem";
+    const rewardSelect = makeSelect(itemOptions, station.openingReward?.itemId, "첫 개방 보상 없음");
+    $("#stationOpeningReward").replaceWith(rewardSelect);
+    rewardSelect.id = "stationOpeningReward";
+    $("#stationOpeningRewardQuantity").value = String(station.openingReward?.quantity || 1);
+    $("#stationUnlockedByDefault").checked = station.unlockedByDefault === true;
+    $("#stationActivationText").value = station.activationText || "";
+    $("#stationEnterText").value = station.enterText || "";
+    $("#stationFailureText").value = station.failureText || "";
+    $("#stationExitText").value = station.exitText || "";
+    $("#deleteStationButton").title = hasStationReferences(activeStationId) ? "연결된 레시피나 스토리 조건·효과를 먼저 제거하세요." : "";
+
+    $("#stationName").oninput = () => { station.name = $("#stationName").value; $("#stationInspectorTitle").textContent = station.name || "장치 설정"; markGameplayDirty(); renderStationList(); };
+    $("#stationAliases").oninput = () => { station.aliases = $("#stationAliases").value.split(",").map((alias) => alias.trim()).filter(Boolean); markGameplayDirty(); };
+    locationSelect.onchange = () => { station.location = locationSelect.value || null; markGameplayDirty(); renderStationList(); showValidation(); };
+    activationSelect.onchange = () => { station.activationItemId = activationSelect.value || null; markGameplayDirty(); showValidation(); };
+    rewardSelect.onchange = () => {
+        if (rewardSelect.value) station.openingReward = { itemId: rewardSelect.value, quantity: Number($("#stationOpeningRewardQuantity").value) || 1 };
+        else delete station.openingReward;
+        markGameplayDirty();
+        showValidation();
+    };
+    $("#stationOpeningRewardQuantity").oninput = () => {
+        if (station.openingReward) station.openingReward.quantity = Number($("#stationOpeningRewardQuantity").value);
+        markGameplayDirty();
+        showValidation();
+    };
+    $("#stationUnlockedByDefault").onchange = () => { station.unlockedByDefault = $("#stationUnlockedByDefault").checked; markGameplayDirty(); };
+    for (const [field, id] of [["activationText", "stationActivationText"], ["enterText", "stationEnterText"], ["failureText", "stationFailureText"], ["exitText", "stationExitText"]]) {
+        $(`#${id}`).oninput = () => { station[field] = $(`#${id}`).value; markGameplayDirty(); };
+    }
+
+    renderRecipeList(activeStationId);
+    $("#addRecipeButton").disabled = !Object.keys(gameplay.items || {}).length;
+    if (!activeRecipeId || gameplay.recipes?.[activeRecipeId]?.stationId !== activeStationId) {
+        activeRecipeId = Object.entries(gameplay.recipes || {}).find(([, recipe]) => recipe.stationId === activeStationId)?.[0] || null;
+    }
+    renderRecipeInspector();
+}
+
+function renderIngredientRows(recipe) {
+    const container = $("#recipeIngredients");
+    container.replaceChildren();
+    recipe.ingredients ||= [];
+    recipe.ingredients.forEach((ingredient, index) => {
+        const row = document.createElement("div");
+        row.className = "recipe-row";
+        const itemLabel = document.createElement("label"); itemLabel.textContent = "아이템";
+        const select = makeSelect(Object.entries(gameplay.items || {}).map(([id, item]) => [id, item.name || id]), ingredient.itemId);
+        itemLabel.append(select);
+        const qtyLabel = document.createElement("label"); qtyLabel.textContent = "수량";
+        const quantity = document.createElement("input"); quantity.type = "number"; quantity.min = "1"; quantity.step = "1"; quantity.value = String(ingredient.quantity || 1); qtyLabel.append(quantity);
+        const remove = document.createElement("button"); remove.type = "button"; remove.className = "danger"; remove.textContent = "삭제";
+        select.onchange = () => { ingredient.itemId = select.value; markGameplayDirty(); renderRecipeList(activeStationId); showValidation(); };
+        quantity.oninput = () => { ingredient.quantity = Number(quantity.value); markGameplayDirty(); renderRecipeList(activeStationId); showValidation(); };
+        remove.onclick = () => { recipe.ingredients.splice(index, 1); markGameplayDirty(); renderIngredientRows(recipe); renderRecipeList(activeStationId); showValidation(); };
+        row.append(itemLabel, qtyLabel, remove); container.append(row);
+    });
+}
+
+function renderOutcomeRows(recipe) {
+    const container = $("#recipeOutcomes");
+    container.replaceChildren();
+    recipe.outcomes ||= [];
+    recipe.outcomes.forEach((outcome, index) => {
+        const row = document.createElement("div");
+        row.className = "recipe-row outcome-row";
+        const itemLabel = document.createElement("label"); itemLabel.textContent = "결과 아이템";
+        const select = makeSelect(Object.entries(gameplay.items || {}).map(([id, item]) => [id, item.name || id]), outcome.itemId); itemLabel.append(select);
+        const quantityLabel = document.createElement("label"); quantityLabel.textContent = "수량";
+        const quantity = document.createElement("input"); quantity.type = "number"; quantity.min = "1"; quantity.step = "1"; quantity.value = String(outcome.quantity || 1); quantityLabel.append(quantity);
+        const weightLabel = document.createElement("label"); weightLabel.textContent = "가중치";
+        const weight = document.createElement("input"); weight.type = "number"; weight.min = "0.01"; weight.step = "0.1"; weight.value = String(outcome.weight || 1); weightLabel.append(weight);
+        const remove = document.createElement("button"); remove.type = "button"; remove.className = "danger"; remove.textContent = "삭제";
+        select.onchange = () => { outcome.itemId = select.value; markGameplayDirty(); renderRecipeList(activeStationId); showValidation(); };
+        quantity.oninput = () => { outcome.quantity = Number(quantity.value); markGameplayDirty(); showValidation(); };
+        weight.oninput = () => { outcome.weight = Number(weight.value); markGameplayDirty(); showValidation(); };
+        remove.onclick = () => { recipe.outcomes.splice(index, 1); markGameplayDirty(); renderOutcomeRows(recipe); showValidation(); };
+        row.append(itemLabel, quantityLabel, weightLabel, remove); container.append(row);
+    });
+}
+
+function renderRecipeInspector() {
+    const recipe = gameplay?.recipes?.[activeRecipeId];
+    const empty = !recipe || recipe.stationId !== activeStationId;
+    $("#recipeInspectorEmpty").hidden = !empty;
+    $("#recipeEditor").hidden = empty;
+    if (empty) return;
+    $("#recipeInspectorTitle").textContent = recipe.name || "레시피 설정";
+    $("#recipeId").value = activeRecipeId;
+    $("#recipeName").value = recipe.name || "";
+    $("#recipeDiscoveredByDefault").checked = recipe.discoveredByDefault !== false;
+    $("#recipeSuccessText").value = recipe.successText || "";
+    $("#recipeName").oninput = () => { recipe.name = $("#recipeName").value; $("#recipeInspectorTitle").textContent = recipe.name || "레시피 설정"; markGameplayDirty(); renderRecipeList(activeStationId); };
+    $("#recipeDiscoveredByDefault").onchange = () => { recipe.discoveredByDefault = $("#recipeDiscoveredByDefault").checked; markGameplayDirty(); };
+    $("#recipeSuccessText").oninput = () => { recipe.successText = $("#recipeSuccessText").value; markGameplayDirty(); };
+    renderIngredientRows(recipe);
+    const randomMode = Array.isArray(recipe.outcomes);
+    $("#recipeOutputMode").value = randomMode ? "random" : "fixed";
+    $("#fixedRecipeOutput").hidden = randomMode;
+    $("#randomRecipeOutput").hidden = !randomMode;
+    const outputSelect = makeSelect(Object.entries(gameplay.items || {}).map(([id, item]) => [id, item.name || id]), recipe.output?.itemId);
+    $("#recipeOutputItem").replaceWith(outputSelect); outputSelect.id = "recipeOutputItem";
+    $("#recipeOutputQuantity").value = String(recipe.output?.quantity || 1);
+    outputSelect.onchange = () => { recipe.output ||= { quantity: 1 }; recipe.output.itemId = outputSelect.value; markGameplayDirty(); renderRecipeList(activeStationId); showValidation(); };
+    $("#recipeOutputQuantity").oninput = () => { recipe.output ||= { itemId: Object.keys(gameplay.items || {})[0], quantity: 1 }; recipe.output.quantity = Number($("#recipeOutputQuantity").value); markGameplayDirty(); showValidation(); };
+    $("#recipeOutputMode").onchange = () => {
+        if ($("#recipeOutputMode").value === "random") {
+            const current = recipe.output || { itemId: Object.keys(gameplay.items || {})[0], quantity: 1 };
+            recipe.outcomes = [{ ...current, weight: 1 }];
+            delete recipe.output;
+        } else {
+            recipe.output = recipe.outcomes?.[0] ? { itemId: recipe.outcomes[0].itemId, quantity: recipe.outcomes[0].quantity } : { itemId: Object.keys(gameplay.items || {})[0], quantity: 1 };
+            delete recipe.outcomes;
+        }
+        markGameplayDirty();
+        renderRecipeInspector();
+        renderRecipeList(activeStationId);
+        showValidation();
+    };
+    renderOutcomeRows(recipe);
+    $("#addIngredientButton").onclick = () => {
+        const firstItemId = Object.keys(gameplay.items || {})[0];
+        if (!firstItemId) return;
+        recipe.ingredients.push({ itemId: firstItemId, quantity: 1 });
+        markGameplayDirty(); renderIngredientRows(recipe); showValidation();
+    };
+    $("#addOutcomeButton").onclick = () => {
+        const firstItemId = Object.keys(gameplay.items || {})[0];
+        if (!firstItemId) return;
+        recipe.outcomes.push({ itemId: firstItemId, quantity: 1, weight: 1 });
+        markGameplayDirty(); renderOutcomeRows(recipe); showValidation();
+    };
+    $("#deleteRecipeButton").disabled = hasRecipeReferences(activeRecipeId);
+    $("#deleteRecipeButton").title = hasRecipeReferences(activeRecipeId) ? "스토리 조건이나 효과에서 참조 중인 레시피입니다." : "";
+}
+
+function addStation() {
+    let number = Object.keys(gameplay.stations || {}).length + 1;
+    let id = `new_station_${number}`;
+    while (gameplay.stations?.[id]) id = `new_station_${++number}`;
+    gameplay.stations ||= {};
+    gameplay.stations[id] = { name: "새 변환 장치", aliases: [], location: null, unlockedByDefault: false, enterText: "재료를 넣으세요.", failureText: "재료가 사라졌습니다." };
+    activeStationId = id;
+    activeRecipeId = null;
+    markGameplayDirty(); renderStationList(); renderStationInspector(); showValidation();
+}
+
+function deleteStation() {
+    if (!activeStationId || hasStationReferences(activeStationId)) return;
+    delete gameplay.stations[activeStationId];
+    activeStationId = Object.keys(gameplay.stations || {})[0] || null;
+    activeRecipeId = Object.entries(gameplay.recipes || {}).find(([, recipe]) => recipe.stationId === activeStationId)?.[0] || null;
+    markGameplayDirty(); renderStationList(); renderStationInspector(); showValidation();
+}
+
+function addRecipe() {
+    if (!activeStationId) return;
+    let number = Object.keys(gameplay.recipes || {}).length + 1;
+    let id = `new_recipe_${number}`;
+    while (gameplay.recipes?.[id]) id = `new_recipe_${++number}`;
+    const firstItemId = Object.keys(gameplay.items || {})[0];
+    if (!firstItemId) return;
+    gameplay.recipes ||= {};
+    gameplay.recipes[id] = { name: "새 조합법", stationId: activeStationId, ingredients: [{ itemId: firstItemId, quantity: 1 }], output: { itemId: firstItemId, quantity: 1 }, discoveredByDefault: true };
+    activeRecipeId = id;
+    markGameplayDirty(); renderStationList(); renderStationInspector(); showValidation();
+}
+
+function deleteRecipe() {
+    if (!activeRecipeId || hasRecipeReferences(activeRecipeId)) return;
+    delete gameplay.recipes[activeRecipeId];
+    activeRecipeId = Object.entries(gameplay.recipes || {}).find(([, recipe]) => recipe.stationId === activeStationId)?.[0] || null;
+    markGameplayDirty(); renderStationList(); renderStationInspector(); showValidation();
+}
+
 function setActiveTab(tab) {
-    const workspaces = { story: storyWorkspace, world: worldWorkspace, monsters: monsterWorkspace, items: itemWorkspace };
+    const workspaces = { story: storyWorkspace, world: worldWorkspace, monsters: monsterWorkspace, items: itemWorkspace, stations: stationWorkspace };
     for (const [name, workspace] of Object.entries(workspaces)) {
         workspace.hidden = name !== tab;
         document.querySelector(`[data-tab="${name}"]`).classList.toggle("active", name === tab);
@@ -1396,6 +1768,10 @@ $("#addMonsterDropButton").addEventListener("click", () => {
 });
 $("#addItemButton").addEventListener("click", addItem);
 $("#deleteItemButton").addEventListener("click", deleteItem);
+$("#addStationButton").addEventListener("click", addStation);
+$("#deleteStationButton").addEventListener("click", deleteStation);
+$("#addRecipeButton").addEventListener("click", addRecipe);
+$("#deleteRecipeButton").addEventListener("click", deleteRecipe);
 document.querySelectorAll("[data-preview-select]").forEach((button) => {
     button.addEventListener("click", () => previewAudioTrack($(`#${button.dataset.previewSelect}`).value));
 });
@@ -1424,6 +1800,8 @@ async function initializeEditor() {
         activeLocationId = gameplay.locations?.village ? "village" : Object.keys(gameplay.locations || {})[0] || null;
         activeMonsterId = Object.keys(gameplay.monsters || {})[0] || null;
         activeItemId = Object.keys(gameplay.items || {})[0] || null;
+        activeStationId = Object.keys(gameplay.stations || {})[0] || null;
+        activeRecipeId = Object.entries(gameplay.recipes || {}).find(([, recipe]) => recipe.stationId === activeStationId)?.[0] || null;
         loadStory(await storyResponse.json(), "arrival.json");
         renderWorldGraph();
         renderLocationInspector();
@@ -1431,6 +1809,8 @@ async function initializeEditor() {
         renderMonsterInspector();
         renderItemList();
         renderItemInspector();
+        renderStationList();
+        renderStationInspector();
         setActiveTab("story");
     } catch (error) {
         $("#storyFileLabel").textContent = "파일 로드 실패";

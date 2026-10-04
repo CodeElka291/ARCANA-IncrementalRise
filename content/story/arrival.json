@@ -1,6 +1,6 @@
 {
   "storyId": "arrival",
-  "version": 1,
+  "version": 2,
   "startNode": "village_notice",
   "nodes": {
     "village_notice": {
@@ -103,7 +103,31 @@
       "conditions": [
         { "type": "flagEquals", "key": "reported_ruins_clue", "value": true }
       ],
-      "choices": []
+      "choices": [
+        {
+          "id": "inspect_strange_key",
+          "text": "마을 사람들이 발견한 검은 열쇠를 받는다",
+          "conditions": [],
+          "effects": [
+            { "type": "grantItem", "itemId": "dimensional_key", "quantity": 1 }
+          ],
+          "next": "key_received"
+        }
+      ]
+    },
+    "key_received": {
+      "title": "허공을 여는 열쇠",
+      "text": "열쇠는 숲에서 보았던 빈 허공의 틈과 공명합니다. 숲에서 '차원 균열'을 입력해 열쇠를 꽂아 보세요.",
+      "conditions": [],
+      "choices": [
+        {
+          "id": "return_after_key",
+          "text": "열쇠를 챙겨 의뢰 기록을 닫는다",
+          "conditions": [],
+          "effects": [],
+          "next": "quest_report"
+        }
+      ]
     }
   }
 }

@@ -7,7 +7,7 @@
     <script src="../supabase-config.js?v=2"></script>
     <script src="editor-auth.js?v=1"></script>
     <title>ARCANA 스토리 편집기</title>
-    <link rel="stylesheet" href="editor.css?v=10">
+    <link rel="stylesheet" href="editor.css?v=12">
 </head>
 <body>
     <header class="topbar">
@@ -31,6 +31,7 @@
         <button class="editor-tab" type="button" data-tab="world">월드 맵</button>
         <button class="editor-tab" type="button" data-tab="monsters">몬스터 도감</button>
         <button class="editor-tab" type="button" data-tab="items">아이템·상점</button>
+        <button class="editor-tab" type="button" data-tab="stations">변환 장치·레시피</button>
     </nav>
 
     <section id="validationPanel" class="validation-panel global-validation" aria-live="polite">
@@ -191,15 +192,67 @@
                 <label>구매 가격 <small>비워두면 상점에서 구매할 수 없습니다.</small><input id="itemPrice" type="number" min="0" step="1"></label>
                 <label>판매 가격 <small>비워두면 구매 가격의 절반으로 판매합니다. 0이면 판매 불가.</small><input id="itemSellPrice" type="number" min="0" step="1"></label>
                 <label>장착 부위 <select id="itemEquipmentSlot"><option value="">장착 불가</option><option value="weapon">무기</option><option value="armor">방어구</option></select></label>
+                <label class="inline-setting"><input id="itemUpgradeable" type="checkbox"> 변환 장치에서 1회 강화 가능</label>
                 <label>회복량 <input id="itemHeal" type="number" min="0" step="1"></label>
                 <label>공격력 <input id="itemAttack" type="number" min="0" step="1"></label>
+                <label>속성 이름 <small>예: 화염, 빙결, 암흑</small><input id="itemElement" type="text"></label>
+                <label>속성 공격력 <input id="itemElementalAttack" type="number" min="0" step="1"></label>
                 <label>방어력 <input id="itemDefense" type="number" min="0" step="1"></label>
                 <label>내구도 <small>0이면 내구도가 닳지 않습니다.</small><input id="itemDurability" type="number" min="0" step="1"></label>
             </form>
         </section>
     </main>
 
-    <script src="../game/story-engine.js"></script>
-    <script src="editor.js?v=15"></script>
+    <main id="stationWorkspace" class="monster-workspace" hidden>
+        <aside class="monster-list-panel">
+            <div class="panel-heading"><div><h2>변환 장치</h2><p>해금 아이템과 스토리 효과로 열리는 장치를 구성합니다.</p></div><button id="addStationButton" type="button">+ 장치</button></div>
+            <div id="stationList" class="monster-list"></div>
+        </aside>
+        <section class="monster-detail-panel inspector station-detail-panel">
+            <div class="panel-heading inspector-heading"><div><h2 id="stationInspectorTitle">장치 선택</h2><p id="stationInspectorSubtitle">목록에서 장치를 선택하세요.</p></div><button id="deleteStationButton" class="danger" type="button" disabled>장치 삭제</button></div>
+            <div id="stationInspectorEmpty" class="empty-inspector">장치를 추가하거나 목록에서 선택하세요.</div>
+            <div id="stationEditor" hidden>
+                <label>장치 ID <input id="stationId" type="text" readonly></label>
+                <label>표시 이름 / 입력할 명령어 <input id="stationName" type="text"></label>
+                <label>명령어 별칭 <small>쉼표로 구분</small><input id="stationAliases" type="text" placeholder="예: 차원열쇠, 허공"></label>
+                <label>사용 가능 장소 <select id="stationLocation"></select></label>
+                <label>열쇠 아이템 <small>선택하면 처음 사용할 때 소모해 장치를 엽니다.</small><select id="stationActivationItem"></select></label>
+                <label>첫 개방 보상 <select id="stationOpeningReward"></select></label>
+                <label>첫 개방 보상 수량 <input id="stationOpeningRewardQuantity" type="number" min="1" step="1"></label>
+                <label class="inline-setting"><input id="stationUnlockedByDefault" type="checkbox"> 새 기록부터 기본 해금</label>
+                <label>개방 연출 문구 <textarea id="stationActivationText" rows="2"></textarea></label>
+                <label>입장 문구 <textarea id="stationEnterText" rows="3"></textarea></label>
+                <label>레시피가 없을 때 문구 <textarea id="stationFailureText" rows="2"></textarea></label>
+                <label>퇴장 문구 <input id="stationExitText" type="text"></label>
+                <fieldset class="exit-fieldset"><legend>레시피 도감</legend>
+                    <div class="panel-heading"><small>게임에서는 재료를 하나씩 넣으며, 레시피의 필요 개수를 채우면 자동 조합됩니다.</small><button id="addRecipeButton" type="button">+ 레시피</button></div>
+                    <div id="stationRecipeList" class="monster-list"></div>
+                    <p id="recipeInspectorEmpty" class="empty-inspector">레시피를 선택하거나 추가하세요.</p>
+                    <div id="recipeEditor" hidden>
+                        <div class="panel-heading"><strong id="recipeInspectorTitle">레시피 설정</strong><button id="deleteRecipeButton" class="danger" type="button">삭제</button></div>
+                        <label>레시피 ID <input id="recipeId" type="text" readonly></label>
+                        <label>이름 <input id="recipeName" type="text"></label>
+                        <label class="inline-setting"><input id="recipeDiscoveredByDefault" type="checkbox"> 처음부터 레시피 도감에 표시</label>
+                        <div class="recipe-section-heading"><strong>필요 재료</strong><button id="addIngredientButton" type="button">+ 재료</button></div>
+                        <div id="recipeIngredients" class="recipe-rows"></div>
+                        <label>결과 방식 <select id="recipeOutputMode"><option value="fixed">고정 결과</option><option value="random">확률 결과</option></select></label>
+                        <div id="fixedRecipeOutput">
+                            <label>결과 아이템 <select id="recipeOutputItem"></select></label>
+                            <label>결과 수량 <input id="recipeOutputQuantity" type="number" min="1" step="1"></label>
+                        </div>
+                        <div id="randomRecipeOutput" hidden>
+                            <div class="recipe-section-heading"><strong>무작위 결과</strong><button id="addOutcomeButton" type="button">+ 결과</button></div>
+                            <div id="recipeOutcomes" class="recipe-rows"></div>
+                            <small>가중치 비율로 결과를 뽑습니다. 예: 1, 2, 1은 25%, 50%, 25%입니다.</small>
+                        </div>
+                        <label>성공 문구 <textarea id="recipeSuccessText" rows="2"></textarea></label>
+                    </div>
+                </fieldset>
+            </div>
+        </section>
+    </main>
+
+    <script src="../game/story-engine.js?v=2"></script>
+    <script src="editor.js?v=18"></script>
 </body>
 </html>
