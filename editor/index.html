@@ -3,13 +3,11 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <script>
-        if (sessionStorage.getItem("arcana.editor-authorized") !== "1") {
-            window.location.replace("../?editor=1");
-        }
-    </script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.min.js"></script>
+    <script src="../supabase-config.js?v=2"></script>
+    <script src="editor-auth.js?v=1"></script>
     <title>ARCANA 스토리 편집기</title>
-    <link rel="stylesheet" href="editor.css?v=4">
+    <link rel="stylesheet" href="editor.css?v=5">
 </head>
 <body>
     <header class="topbar">
@@ -147,6 +145,6 @@
     </main>
 
     <script src="../game/story-engine.js"></script>
-    <script src="editor.js?v=6"></script>
+    <script src="editor.js?v=7"></script>
 </body>
 </html>

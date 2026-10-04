@@ -4,13 +4,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
-    <title>ARCANA Incremental Rise</title>
-    <link rel="stylesheet" href="style.css?v=6">
+    <title>Arcana: The Art of All Things</title>
+    <link rel="stylesheet" href="style.css?v=9">
 </head>
 
 <body>
     <main id="game">
-        <pre id="title">ARCANA Incremental Rise</pre>
+        <pre id="title">Arcana: The Art of All Things</pre>
 
         <audio id="loginMusic" src="assets/audio/echoes_of_lumen-epic-background-music-595722.mp3" loop preload="auto"></audio>
 
@@ -27,25 +27,7 @@
             </label>
             <p id="settingsMusicStatus" role="status" aria-live="polite">시작하기를 누르면 음악과 함께 로그인 화면으로 이동합니다.</p>
             <button id="startGameButton" type="button">시작하기</button>
-            <a id="editorLink" class="dev-tool-link" href="editor/">스토리 편집기 열기 ↗</a>
         </section>
-
-        <dialog id="editorAccessDialog" aria-labelledby="editorAccessTitle">
-            <form id="editorAccessForm">
-                <h2 id="editorAccessTitle">편집자 확인</h2>
-                <p id="editorAccessDescription"></p>
-                <label for="editorPasscode">편집자 암호</label>
-                <input id="editorPasscode" type="password" minlength="6" autocomplete="current-password" required>
-                <label id="editorPasscodeConfirmLabel" for="editorPasscodeConfirm" hidden>암호 확인</label>
-                <input id="editorPasscodeConfirm" type="password" minlength="6" autocomplete="new-password" hidden>
-                <p id="editorAccessMessage" role="status" aria-live="polite"></p>
-                <p class="editor-access-note">이 암호는 이 브라우저의 간편 경로 잠금입니다. 서버 권한 인증은 아닙니다.</p>
-                <div class="editor-access-actions">
-                    <button id="editorAccessCancel" type="button">취소</button>
-                    <button type="submit">계속</button>
-                </div>
-            </form>
-        </dialog>
 
         <section id="authPanel" aria-labelledby="authTitle" hidden>
             <h1 id="authTitle">기록의 서고에 접속</h1>
@@ -91,6 +73,7 @@
 
         <section id="gamePanel" hidden aria-label="게임 터미널">
             <div id="accountBar">
+                <a id="editorLink" class="editor-game-link" href="editor/" hidden aria-label="스토리 편집기">편집기</a>
                 <button id="signOutButton" type="button">로그아웃</button>
             </div>
 
@@ -112,11 +95,11 @@
     </main>
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.min.js"></script>
-    <script src="supabase-config.js?v=1"></script>
+    <script src="supabase-config.js?v=2"></script>
     <script src="game/story-engine.js?v=1"></script>
     <script src="game/gameplay-engine.js?v=3"></script>
     <script src="game-state.js?v=2"></script>
-    <script src="app.js?v=20261004-16"></script>
+    <script src="app.js?v=20261004-19"></script>
 </body>
 
 </html>

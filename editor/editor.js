@@ -1015,6 +1015,8 @@ window.addEventListener("beforeunload", (event) => {
 
 async function initializeEditor() {
     try {
+        if (!window.ARCANA_EDITOR_AUTHORIZATION) throw new Error("편집자 계정 확인을 시작하지 못했습니다.");
+        if (!await window.ARCANA_EDITOR_AUTHORIZATION) return;
         const [gameplayResponse, storyResponse] = await Promise.all([
             fetch("../content/data/gameplay.json", { cache: "no-store" }),
             fetch("../content/story/arrival.json", { cache: "no-store" })
