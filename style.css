@@ -98,6 +98,17 @@ body {
     color: #050805;
 }
 
+.dev-tool-link {
+    display: inline-block;
+    margin: 14px 0 0 12px;
+    color: #719471;
+    font-size: 12px;
+}
+
+.dev-tool-link:hover {
+    color: #c0ffc0;
+}
+
 #authSubmit:disabled,
 #signOutButton:disabled,
 .text-button:disabled {

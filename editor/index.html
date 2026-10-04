@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="ko">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ARCANA 스토리 편집기</title>
+    <link rel="stylesheet" href="editor.css?v=4">
+</head>
+<body>
+    <header class="topbar">
+        <div>
+            <p class="eyebrow">ARCANA: INCREMENTAL RISE</p>
+            <h1>스토리 편집기</h1>
+        </div>
+        <div class="toolbar">
+            <span id="storyFileLabel" class="file-label">불러오는 중…</span>
+            <button id="openButton" type="button">JSON 열기</button>
+            <button id="saveButton" class="primary" type="button">저장</button>
+            <button id="validateButton" type="button">검증</button>
+            <button id="addNodeButton" type="button">+ 장면 추가</button>
+            <input id="fileInput" type="file" accept=".json,application/json" hidden>
+        </div>
+    </header>
+
+    <nav class="editor-tabs" aria-label="편집기 섹션">
+        <button class="editor-tab active" type="button" data-tab="story">스토리</button>
+        <button class="editor-tab" type="button" data-tab="world">월드 맵</button>
+        <button class="editor-tab" type="button" data-tab="monsters">몬스터 도감</button>
+    </nav>
+
+    <section id="validationPanel" class="validation-panel global-validation" aria-live="polite">
+        <strong id="validationTitle">스토리 파일을 불러오는 중입니다.</strong>
+        <ul id="validationList"></ul>
+    </section>
+
+    <main id="storyWorkspace" class="workspace">
+        <section class="graph-panel" aria-label="스토리 흐름도">
+            <div class="panel-heading">
+                <div>
+                    <h2>스토리 흐름</h2>
+                    <p>장면 카드를 선택하면 오른쪽에서 편집할 수 있습니다. 연결선에 마우스를 올리면 선택지 내용을 확인합니다.</p>
+                </div>
+                <span id="graphSummary" class="graph-summary"></span>
+            </div>
+            <div id="graphViewport" class="graph-viewport" tabindex="0" aria-label="장면 그래프 캔버스">
+                <div id="graphCanvas" class="graph-canvas">
+                    <svg id="graphLinks" class="graph-links" aria-hidden="true"></svg>
+                    <div id="graphNodes" class="graph-nodes"></div>
+                </div>
+            </div>
+        </section>
+
+        <aside id="inspector" class="inspector" aria-label="선택한 장면 편집">
+            <div class="panel-heading inspector-heading">
+                <div>
+                    <h2 id="inspectorTitle">장면 선택</h2>
+                    <p id="inspectorSubtitle">흐름도에서 장면을 선택하세요.</p>
+                </div>
+                <button id="deleteNodeButton" class="danger" type="button" disabled>장면 삭제</button>
+            </div>
+            <section class="story-meta" aria-label="스토리 설정">
+                <h3>스토리 설정</h3>
+                <label>스토리 ID <input id="storyId" type="text"></label>
+                <div class="meta-row">
+                    <label>버전 <input id="storyVersion" type="number" min="1" step="1"></label>
+                    <label>시작 장면 <select id="storyStartNode"></select></label>
+                </div>
+                <p id="storyMetaMessage" class="edit-message" aria-live="polite"></p>
+                <div id="questTriggerList" class="quest-trigger-list"></div>
+            </section>
+            <div id="emptyInspector" class="empty-inspector">왼쪽 흐름도에서 장면 카드를 누르면 내용을 편집할 수 있습니다.</div>
+            <form id="nodeForm" hidden>
+                <label>장면 ID <input id="nodeId" type="text" readonly></label>
+                <label>제목 <input id="nodeTitle" type="text" maxlength="100"></label>
+                <label>본문 <textarea id="nodeText" rows="5"></textarea></label>
+                <label>장면 표시 조건 <small>JSON 배열</small><textarea id="nodeConditions" class="code-field" rows="3" spellcheck="false"></textarea></label>
+                <div class="choice-heading">
+                    <div><h3>선택지</h3><p>선택지를 고르면 효과가 적용되고 다음 장면으로 이동합니다.</p></div>
+                    <button id="addChoiceButton" type="button">+ 선택지</button>
+                </div>
+                <div id="choicesEditor" class="choices-editor"></div>
+                <p id="editMessage" class="edit-message" aria-live="polite"></p>
+            </form>
+        </aside>
+    </main>
+
+    <main id="worldWorkspace" class="world-workspace" hidden>
+        <section class="world-map-panel">
+            <div class="panel-heading">
+                <div>
+                    <h2>월드 맵</h2>
+                    <p>지역 카드를 선택해 이름, 이동 출구, 탐험과 조우 설정을 편집하세요. 연결은 한쪽 방향만 설정할 수도 있습니다.</p>
+                </div>
+                <button id="addLocationButton" type="button">+ 지역 추가</button>
+            </div>
+            <div id="worldGraphViewport" class="graph-viewport world-viewport" tabindex="0" aria-label="월드 지역 지도">
+                <div id="worldGraphCanvas" class="graph-canvas world-canvas">
+                    <svg id="worldGraphLinks" class="graph-links" aria-hidden="true"></svg>
+                    <div id="worldGraphNodes" class="graph-nodes"></div>
+                </div>
+            </div>
+            <p id="worldEditMessage" class="edit-message" aria-live="polite"></p>
+        </section>
+        <aside class="inspector world-inspector" aria-label="선택한 지역 편집">
+            <div class="panel-heading inspector-heading">
+                <div><h2 id="locationInspectorTitle">지역 선택</h2><p id="locationInspectorSubtitle">지도에서 지역을 선택하세요.</p></div>
+                <button id="deleteLocationButton" class="danger" type="button" disabled>지역 삭제</button>
+            </div>
+            <div id="locationInspectorEmpty" class="empty-inspector">월드 맵에서 지역 카드를 선택하세요.</div>
+            <form id="locationForm" hidden>
+                <label>지역 ID <input id="locationId" type="text" readonly></label>
+                <label>표시 이름 <input id="locationName" type="text"></label>
+                <label>설명 <textarea id="locationDescription" rows="4"></textarea></label>
+                <label>명령어 별칭 <small>쉼표로 구분</small><input id="locationAliases" type="text" placeholder="예: 폐허, 유적"></label>
+                <fieldset class="exit-fieldset"><legend>이동 가능한 다음 지역</legend><div id="locationExits" class="exit-options"></div></fieldset>
+                <label class="inline-setting"><input id="locationExplorable" type="checkbox"> 이 지역에서 탐험 허용</label>
+                <label>조우 몬스터 <select id="locationMonster"></select></label>
+                <label>조우 확률 <span id="encounterChanceLabel"></span><input id="locationEncounterChance" type="range" min="0" max="1" step="0.05"></label>
+                <p id="locationEditMessage" class="edit-message" aria-live="polite"></p>
+            </form>
+        </aside>
+    </main>
+
+    <main id="monsterWorkspace" class="monster-workspace" hidden>
+        <aside class="monster-list-panel">
+            <div class="panel-heading"><div><h2>몬스터 도감</h2><p>지역 조우와 퀘스트 목표에서 사용하는 몬스터입니다.</p></div><button id="addMonsterButton" type="button">+ 몬스터</button></div>
+            <div id="monsterList" class="monster-list"></div>
+        </aside>
+        <section class="monster-detail-panel inspector">
+            <div class="panel-heading inspector-heading"><div><h2 id="monsterInspectorTitle">몬스터 선택</h2><p id="monsterInspectorSubtitle">목록에서 몬스터를 선택하세요.</p></div><button id="deleteMonsterButton" class="danger" type="button" disabled>몬스터 삭제</button></div>
+            <div id="monsterInspectorEmpty" class="empty-inspector">몬스터 목록에서 카드를 선택하세요.</div>
+            <form id="monsterForm" hidden>
+                <label>몬스터 ID <input id="monsterId" type="text" readonly></label>
+                <label>표시 이름 <input id="monsterName" type="text"></label>
+                <label>체력 <input id="monsterHp" type="number" min="1" step="1"></label>
+                <label>공격력 <input id="monsterAttack" type="number" min="0" step="1"></label>
+                <label>경험치 보상 <input id="monsterXp" type="number" min="0" step="1"></label>
+                <label>골드 보상 <input id="monsterGold" type="number" min="0" step="1"></label>
+                <p id="monsterEditMessage" class="edit-message" aria-live="polite"></p>
+            </form>
+        </section>
+    </main>
+
+    <script src="../game/story-engine.js"></script>
+    <script src="editor.js?v=6"></script>
+</body>
+</html>

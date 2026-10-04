@@ -16,29 +16,54 @@
 
     function grantXp(state, amount) { return awardXp(state, amount); }
 
+    function recordQuestObjectiveProgress(data, state, monsterId) {
+        const messages = [];
+        state.questProgress = state.questProgress || {};
+        for (const [questId, quest] of Object.entries(data.quests || {})) {
+            const objective = quest.objective;
+            if (state.quests[questId] !== "active" || objective?.type !== "defeatMonster") continue;
+            if (objective.monsterId !== monsterId || objective.location !== state.location) continue;
+
+            const required = objective.required || 1;
+            const progress = Math.min(required, (state.questProgress[questId] || 0) + 1);
+            state.questProgress[questId] = progress;
+            const monsterName = data.monsters[monsterId]?.name || monsterId;
+            const locationName = data.locations[state.location]?.name || state.location;
+            messages.push(`퀘스트 진행: ${quest.name} — ${locationName}에서 ${monsterName} 처치 (${progress}/${required})`);
+            if (progress >= required) {
+                state.quests[questId] = "complete";
+                messages.push(`퀘스트 완료: ${quest.name}. ${quest.description}`);
+            }
+        }
+        return messages;
+    }
+
     function explore(data, state, random = Math.random) {
-        if (state.location !== "forest") return { messages: ["탐험할 수 있는 곳은 숲입니다. '숲'으로 이동하세요."], changed: false };
         if (state.combat) return { messages: ["전투 중입니다. 먼저 '공격'하거나 '도망'을 입력하세요."], changed: false };
         const location = data.locations[state.location];
-        if (random() < location.encounterChance) {
+        if (!location?.explorable) return { messages: ["이곳에서는 탐험할 수 없습니다."], changed: false };
+        if (location.monsterId && random() < (location.encounterChance || 0)) {
             const monster = data.monsters[location.monsterId];
+            if (!monster) return { messages: ["이 지역의 조우 몬스터 데이터가 없습니다."], changed: false };
             state.combat = { monsterId: location.monsterId, hp: monster.hp };
-            return { messages: [`숲길에서 ${monster.name}이(가) 나타났습니다! 체력 ${monster.hp}. '공격' 또는 '도망'을 선택하세요.`], changed: true };
+            return { messages: [`${location.name}에서 ${monster.name}이(가) 나타났습니다! 체력 ${monster.hp}. '공격' 또는 '도망'을 선택하세요.`], changed: true };
         }
         const found = random() < 0.5;
-        if (found) {
-            state.inventory.forest_herb = (state.inventory.forest_herb || 0) + 1;
-            return { messages: ["숲에서 약초를 찾았습니다. (숲 약초 x1)"], changed: true };
+        const resourceItemId = location.resourceItemId || (state.location === "forest" ? "forest_herb" : null);
+        if (found && resourceItemId && data.items[resourceItemId]) {
+            state.inventory[resourceItemId] = (state.inventory[resourceItemId] || 0) + 1;
+            return { messages: [`${location.name}에서 ${data.items[resourceItemId].name}을(를) 찾았습니다. (${data.items[resourceItemId].name} x1)`], changed: true };
         }
         const gold = 2 + Math.floor(random() * 4);
         state.gold += gold;
-        return { messages: [`숲길을 익히고 ${gold} 골드를 발견했습니다.`], changed: true };
+        return { messages: [`${location.name}을(를) 탐험하고 ${gold} 골드를 발견했습니다.`], changed: true };
     }
 
     function attack(data, state, random = Math.random) {
         if (!state.combat) return { messages: ["싸울 상대가 없습니다. 숲에서 '탐험'하세요."], changed: false };
         const monster = data.monsters[state.combat.monsterId];
         if (!monster) throw new Error(`몬스터 데이터 '${state.combat.monsterId}'가 없습니다.`);
+        const defeatedMonsterId = state.combat.monsterId;
         const damage = 4 + Math.floor((state.level - 1) / 3);
         state.combat.hp = Math.max(0, state.combat.hp - damage);
         const messages = [`${monster.name}에게 ${damage} 피해를 입혔습니다. (${state.combat.hp}/${monster.hp})`];
@@ -47,11 +72,7 @@
             state.gold += monster.gold;
             const gainedLevels = awardXp(state, monster.xp);
             messages.push(`${monster.name}을(를) 물리쳤습니다. 경험치 ${monster.xp}, 골드 ${monster.gold}을(를) 얻었습니다.`);
-            if (state.quests.ruins_clue === "active") {
-                state.quests.ruins_clue = "complete";
-                state.flags.cleared_ruins_path = true;
-                messages.push("퀘스트 완료: 폐허의 단서. 숲늑대를 물리쳐 북쪽 길을 안전하게 만들었습니다.");
-            }
+            messages.push(...recordQuestObjectiveProgress(data, state, defeatedMonsterId));
             if (gainedLevels.length) messages.push(`레벨 업! 레벨 ${gainedLevels.join(", ")}. 체력이 회복되었습니다.`);
             return { messages, changed: true };
         }
