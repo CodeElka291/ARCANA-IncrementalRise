@@ -17,7 +17,8 @@ body {
     margin: 0 auto;
 }
 
-#authPanel {
+#authPanel,
+#settingsPanel {
     max-width: 440px;
     padding: 22px;
     border: 1px solid #387a38;
@@ -25,10 +26,35 @@ body {
     box-shadow: 0 0 18px #0a2a0a;
 }
 
-#authPanel h1 {
+#authPanel h1,
+#settingsPanel h1 {
     margin-top: 0;
     color: #c0ffc0;
     font-size: 20px;
+}
+
+.setting-option {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin: 18px 0;
+}
+
+#musicEnabled {
+    accent-color: #9cff9c;
+}
+
+#musicVolume {
+    flex: 1;
+    accent-color: #9cff9c;
+}
+
+#settingsMusicStatus,
+#loginMusicStatus {
+    min-height: 1.5em;
+    color: #719471;
+    font-size: 12px;
 }
 
 #authPanel label {
@@ -52,6 +78,7 @@ body {
 }
 
 #authSubmit,
+#startGameButton,
 #signOutButton,
 .text-button {
     margin-top: 14px;
@@ -64,6 +91,7 @@ body {
 }
 
 #authSubmit:hover,
+#startGameButton:hover,
 #signOutButton:hover,
 .text-button:hover {
     background: #9cff9c;

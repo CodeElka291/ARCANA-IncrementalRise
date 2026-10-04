@@ -2,7 +2,14 @@ const output = document.getElementById("output");
 const form = document.getElementById("commandForm");
 const input = document.getElementById("commandInput");
 const prompt = document.getElementById("prompt");
+const settingsPanel = document.getElementById("settingsPanel");
+const musicEnabledInput = document.getElementById("musicEnabled");
+const musicVolumeInput = document.getElementById("musicVolume");
+const settingsMusicStatus = document.getElementById("settingsMusicStatus");
+const startGameButton = document.getElementById("startGameButton");
 const authPanel = document.getElementById("authPanel");
+const loginMusic = document.getElementById("loginMusic");
+const loginMusicStatus = document.getElementById("loginMusicStatus");
 const authForm = document.getElementById("authForm");
 const authMessage = document.getElementById("authMessage");
 const authSubmit = document.getElementById("authSubmit");
@@ -14,13 +21,19 @@ const gamePanel = document.getElementById("gamePanel");
 const accountLabel = document.getElementById("accountLabel");
 const signOutButton = document.getElementById("signOutButton");
 
-const player = {
-    name: "",
-    location: "village"
-};
-
 let authMode = "login";
 let activeUserId = null;
+let supabaseClient = null;
+let playerState = null;
+let storyContent = null;
+let gameplayContent = null;
+let saveRevision = 0;
+let saveQueue = Promise.resolve();
+let supabaseInitialized = false;
+const player = {
+    name: "",
+    get location() { return playerState?.location || "village"; }
+};
 
 function writeLine(text = "", className = "") {
     const line = document.createElement("p");
@@ -40,7 +53,12 @@ function showHelp() {
     writeLine("  보기 (look)       주변을 살펴봅니다.");
     writeLine("  상태 (status)     현재 상태를 확인합니다.");
     writeLine("  소지품 (inventory) 소지품을 확인합니다.");
-    writeLine("  검 / 책           검을 들어보거나 책을 펼칩니다.");
+    writeLine("  이야기             현재 장면과 선택지를 확인합니다.");
+    writeLine("  선택 <번호>         현재 장면의 선택지를 고릅니다.");
+    writeLine("  탐험 / 공격 / 도망  숲에서 자원을 찾고 몬스터와 싸웁니다.");
+    writeLine("  사용 <아이템>       소지품의 아이템을 사용합니다.");
+    writeLine("  구매 물약           장터에서 회복 물약을 삽니다 (5 골드).");
+    writeLine("  상태 / 소지품       캐릭터 진행 상황을 확인합니다.");
     writeLine("  장터 / 숲 / 마을  해당 장소로 이동합니다.");
     writeLine("  도움말 (help)     명령어 목록을 확인합니다.");
 }
@@ -60,9 +78,28 @@ function lookAround() {
 
 function moveTo(destination) {
     const place = destination.trim().toLowerCase();
+    const forestNames = ["숲", "숲으로", "숲으로 향한다", "forest", "북쪽"];
+    const marketNames = ["장터", "장터로", "장터를 둘러본다", "시장", "market", "동쪽"];
+    const villageNames = ["마을", "마을로", "town", "귀환", "돌아가기"];
+    const target = forestNames.includes(place) ? "forest" : marketNames.includes(place) ? "market" : villageNames.includes(place) ? "village" : null;
+    if (target) {
+        const exits = gameplayContent.locations[player.location]?.exits || [];
+        if (!exits.includes(target)) {
+            writeLine("그곳으로 가는 길은 현재 위치에서 이어지지 않습니다.");
+            return;
+        }
+        if (!playerState.unlockedLocations[target]) {
+            writeLine("아직 그 지역은 해금되지 않았습니다.");
+            return;
+        }
+        if (playerState.combat) {
+            writeLine("전투 중에는 이동할 수 없습니다. '공격'하거나 '도망'을 입력하세요.");
+            return;
+        }
+    }
 
     if (["숲", "숲으로", "숲으로 향한다", "forest", "북쪽"].includes(place)) {
-        player.location = "forest";
+        playerState.location = "forest";
         setPrompt();
         writeLine("당신은 마을을 떠나 숲으로 향합니다.");
         lookAround();
@@ -70,7 +107,7 @@ function moveTo(destination) {
     }
 
     if (["장터", "장터로", "장터를 둘러본다", "시장", "market", "동쪽"].includes(place)) {
-        player.location = "market";
+        playerState.location = "market";
         setPrompt();
         writeLine("당신은 동쪽 길을 따라 장터로 향합니다.");
         lookAround();
@@ -78,7 +115,7 @@ function moveTo(destination) {
     }
 
     if (["마을", "마을로", "town", "귀환", "돌아가기"].includes(place)) {
-        player.location = "village";
+        playerState.location = "village";
         setPrompt();
         writeLine("당신은 초심자의 마을로 돌아옵니다.");
         lookAround();
@@ -88,7 +125,171 @@ function moveTo(destination) {
     writeLine(`'${destination}'(으)로는 갈 수 없습니다. '보기'로 주변을 확인하세요.`);
 }
 
-function runCommand(command) {
+function renderStoryNode() {
+    const node = ArcanaStoryEngine.getCurrentNode(storyContent, playerState);
+    writeLine(`[이야기: ${node.title}]`, "system");
+    writeLine(node.text);
+    const choices = node.choices.filter((choice) => ArcanaStoryEngine.conditionsMet(choice.conditions, playerState));
+    if (!choices.length) {
+        writeLine("이 장면에는 더 이상 선택지가 없습니다. 언제든 '이야기'로 다시 확인할 수 있습니다.");
+        return;
+    }
+    choices.forEach((choice, index) => writeLine(`  ${index + 1}. ${choice.text}`));
+}
+
+function updateMusicSettings() {
+    loginMusic.volume = Number(musicVolumeInput.value);
+    try {
+        localStorage.setItem("arcana.musicEnabled", String(musicEnabledInput.checked));
+        localStorage.setItem("arcana.musicVolume", musicVolumeInput.value);
+    } catch {
+        // Continue with in-memory settings when browser storage is unavailable.
+    }
+}
+
+async function startLoginMusic() {
+    if (!musicEnabledInput.checked) return;
+    try {
+        await loginMusic.play();
+    } catch {
+        // The user can continue to login even when the browser blocks audio.
+    }
+    loginMusicStatus.textContent = loginMusic.paused
+        ? "배경 음악이 재생되지 않으면 브라우저의 사이트 소리 설정을 확인해 주세요."
+        : "";
+    settingsMusicStatus.textContent = loginMusic.paused
+        ? "음악 재생이 차단되었습니다. 브라우저에서 사이트 소리를 허용해 주세요."
+        : "배경 음악 재생 중";
+}
+
+function stopLoginMusic() {
+    loginMusic.pause();
+    loginMusic.currentTime = 0;
+}
+
+function loadMusicSettings() {
+    try {
+        const savedEnabled = localStorage.getItem("arcana.musicEnabled");
+        const savedVolume = localStorage.getItem("arcana.musicVolume");
+        if (savedEnabled !== null) musicEnabledInput.checked = savedEnabled === "true";
+        if (savedVolume !== null && Number.isFinite(Number(savedVolume))) {
+            musicVolumeInput.value = String(Math.min(1, Math.max(0, Number(savedVolume))));
+        }
+    } catch {
+        // Use the default checked state and volume when browser storage is unavailable.
+    }
+    updateMusicSettings();
+}
+
+musicEnabledInput.addEventListener("change", updateMusicSettings);
+musicVolumeInput.addEventListener("input", updateMusicSettings);
+startGameButton.addEventListener("click", async () => {
+    updateMusicSettings();
+    settingsPanel.hidden = true;
+    authPanel.hidden = false;
+    if (musicEnabledInput.checked) await startLoginMusic();
+    if (!supabaseInitialized) {
+        supabaseInitialized = true;
+        initializeSupabase();
+    }
+    document.getElementById("authEmail").focus();
+});
+
+function showPlayerStatus() {
+    writeLine(`[상태] ${playerState.name} | 레벨 ${playerState.level} (${playerState.xp}/${playerState.level * 20} XP) | 체력 ${playerState.hp}/${playerState.maxHp} | 골드 ${playerState.gold}`);
+    writeLine(`위치: ${playerState.location === "forest" ? "숲" : playerState.location === "market" ? "장터" : "초심자의 마을"}`);
+    const questStatuses = { active: "진행 중", complete: "완료" };
+    const quests = Object.entries(playerState.quests).map(([id, status]) => `${gameplayContent.quests?.[id]?.name || id}: ${questStatuses[status] || status}`);
+    if (quests.length) writeLine(`퀘스트: ${quests.join(" | ")}`);
+}
+
+async function persistPlayerState() {
+    const snapshot = JSON.parse(JSON.stringify(playerState));
+    const previous = saveQueue;
+    let resolveSave;
+    saveQueue = new Promise((resolve) => { resolveSave = resolve; });
+    await previous;
+    try {
+        const currentRevision = Number(saveRevision);
+        if (!Number.isSafeInteger(currentRevision) || currentRevision < 1) {
+            throw new Error("저장 revision 값이 올바르지 않습니다. 새로고침해 주세요.");
+        }
+        const { data, error } = await supabaseClient
+            .from("player_state")
+            .update({
+                state: snapshot,
+                content_version: storyContent.version,
+                revision: currentRevision + 1,
+                updated_at: new Date().toISOString()
+            })
+            .eq("user_id", activeUserId)
+            .eq("revision", currentRevision)
+            .select("revision")
+            .maybeSingle();
+        if (error) throw error;
+        if (!data) throw new Error("다른 탭에서 먼저 저장해 진행 상태가 바뀌었습니다. 최신 기록을 불러오도록 새로고침해 주세요.");
+        saveRevision = Number(data.revision);
+        writeLine("[저장 완료] 진행 상태가 계정에 저장되었습니다.", "system");
+    } finally {
+        resolveSave();
+    }
+}
+
+async function loadPlayerState(user, fallbackName) {
+    let lastConflict = "";
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+        let data;
+        let error;
+        try {
+            ({ data, error } = await supabaseClient
+                .from("player_state")
+                .select("state, revision")
+                .eq("user_id", user.id)
+                .maybeSingle());
+        } catch (requestError) {
+            throw new Error(`Supabase 캐릭터 조회 네트워크 요청 실패: ${requestError.message}`);
+        }
+        if (error) throw error;
+
+        if (!data) {
+            const freshState = ArcanaGameState.createDefault(fallbackName, storyContent);
+            let saved;
+            let saveError;
+            try {
+                ({ data: saved, error: saveError } = await supabaseClient
+                    .from("player_state")
+                    .insert({
+                        user_id: user.id,
+                        state: freshState,
+                        content_version: storyContent.version,
+                        revision: 1
+                    })
+                    .select("revision")
+                    .single());
+            } catch (requestError) {
+                throw new Error(`Supabase 신규 캐릭터 저장 네트워크 요청 실패: ${requestError.message}`);
+            }
+            if (!saveError) {
+                saveRevision = Number(saved.revision);
+                return freshState;
+            }
+            if (saveError.code === "23505" || /already exists|duplicate key/i.test(saveError.message || "")) {
+                lastConflict = `신규 기록 생성 ${attempt + 1}회차: 다른 세션이 먼저 만들었습니다.`;
+                continue;
+            }
+            throw new Error(`Supabase 신규 캐릭터 저장 실패: ${saveError.message}`);
+        }
+
+        saveRevision = data.revision;
+        const normalized = ArcanaGameState.normalize(data.state, fallbackName, storyContent);
+        // Loading a content update is read-only. Persist the new content version
+        // with the next gameplay change so two tabs cannot race during login.
+        return normalized;
+    }
+    throw new Error(`${lastConflict || "캐릭터 초기화 중 동시 저장 충돌이 발생했습니다."} 다른 ARCANA 탭을 닫고 새로고침해 주세요.`);
+}
+
+async function runCommand(command) {
     const normalized = command.trim().toLowerCase();
 
     if (!normalized) {
@@ -100,9 +301,42 @@ function runCommand(command) {
     } else if (["보기", "주변", "look", "살펴본다"].includes(normalized)) {
         lookAround();
     } else if (["상태", "status"].includes(normalized)) {
-        writeLine(`[상태] ${player.name} | 신입 모험가 | 위치: ${player.location === "forest" ? "숲" : player.location === "market" ? "장터" : "초심자의 마을"}`);
+        showPlayerStatus();
     } else if (["소지품", "인벤토리", "inventory"].includes(normalized)) {
-        writeLine("[소지품] 비어 있습니다.");
+        const items = Object.entries(playerState.inventory).filter(([, quantity]) => quantity > 0);
+        writeLine(items.length ? `[소지품] ${items.map(([id, quantity]) => `${gameplayContent.items[id]?.name || id} x${quantity}`).join(" | ")}` : "[소지품] 비어 있습니다.");
+    } else if (["이야기", "story"].includes(normalized)) {
+        renderStoryNode();
+    } else if (normalized.startsWith("선택 ") || normalized.startsWith("choice ")) {
+        const choiceNumber = Number(command.slice(command.indexOf(" ") + 1));
+        const node = ArcanaStoryEngine.getCurrentNode(storyContent, playerState);
+        const choices = node.choices.filter((choice) => ArcanaStoryEngine.conditionsMet(choice.conditions, playerState));
+        const choice = choices[choiceNumber - 1];
+        if (!Number.isInteger(choiceNumber) || !choice) {
+            writeLine("현재 장면에 표시된 선택지 번호를 입력하세요. '이야기'로 선택지를 볼 수 있습니다.");
+        } else {
+            const previousState = JSON.parse(JSON.stringify(playerState));
+            try {
+                ArcanaStoryEngine.choose(storyContent, playerState, choice.id);
+                writeLine(`선택: ${choice.text}`, "system");
+                renderStoryNode();
+            } catch (error) {
+                playerState = previousState;
+                throw error;
+            }
+        }
+    } else if (["탐험", "조사", "explore"].includes(normalized)) {
+        ArcanaGameplayEngine.explore(gameplayContent, playerState).messages.forEach((message) => writeLine(message));
+    } else if (["공격", "attack"].includes(normalized)) {
+        ArcanaGameplayEngine.attack(gameplayContent, playerState).messages.forEach((message) => writeLine(message));
+    } else if (["도망", "후퇴", "flee"].includes(normalized)) {
+        ArcanaGameplayEngine.flee(playerState).messages.forEach((message) => writeLine(message));
+    } else if (normalized.startsWith("사용 ") || normalized.startsWith("use ")) {
+        const item = command.slice(command.indexOf(" ") + 1).trim();
+        ArcanaGameplayEngine.useItem(gameplayContent, playerState, item).messages.forEach((message) => writeLine(message));
+    } else if (normalized.startsWith("구매 ") || normalized.startsWith("buy ")) {
+        const item = command.slice(command.indexOf(" ") + 1).trim();
+        ArcanaGameplayEngine.buyItem(gameplayContent, playerState, item).messages.forEach((message) => writeLine(message));
     } else if (["검", "검을 든다", "검을 들어본다", "검을 들어"].includes(normalized)) {
         writeLine("당신은 낡은 연습용 검을 들어 올립니다. 아직은 검을 휘두르는 것조차 어색합니다.");
     } else if (["책", "책을 펼친다", "책을 펼쳐본다", "읽기"].includes(normalized)) {
@@ -120,16 +354,10 @@ function runCommand(command) {
 function beginGame(name) {
     player.name = name;
     setPrompt();
-    writeLine("새로운 기록이 생성되었습니다.");
-    writeLine(` ${name}`);
-    writeLine("당신은 아직 아무것도 아닙니다.");
-    writeLine("위대한 존재들은 처음부터 위대하지 않았습니다.");
-    writeLine("");
-    writeLine("[신입 모험가]");
-    writeLine("당신은 이름만 가진 채 세계에 첫발을 내디뎠습니다.");
-    lookAround();
-    writeLine("");
-    writeLine("무엇을 하시겠습니까? '도움말'을 입력해 명령어를 확인하세요.");
+    writeLine(`${name}의 기록을 불러왔습니다.`, "system");
+    showPlayerStatus();
+    renderStoryNode();
+    writeLine("'도움말'로 명령어를 확인하세요.");
 }
 
 form.addEventListener("submit", (event) => {
@@ -142,7 +370,18 @@ form.addEventListener("submit", (event) => {
     }
 
     writeLine(`${prompt.textContent} ${command}`, "command-line");
-    runCommand(command);
+    const previousState = JSON.stringify(playerState);
+    runCommand(command).then(async () => {
+        if (JSON.stringify(playerState) !== previousState) {
+            try {
+                await persistPlayerState();
+            } catch (error) {
+                playerState = JSON.parse(previousState);
+                writeLine(`[저장 오류] 변경 사항을 저장하지 못해 캐릭터 상태를 되돌렸습니다: ${error.message}`, "error");
+                setPrompt();
+            }
+        }
+    }).catch((error) => writeLine(`[오류] ${error.message || "명령을 처리하지 못했습니다."}`, "error"));
 });
 
 function showAuthMessage(message, isError = false) {
@@ -174,19 +413,63 @@ function setAuthMode(mode) {
     showAuthMessage("");
 }
 
-function showGame(user) {
+async function showGame(user) {
     const name = user.user_metadata?.character_name?.trim()
         || user.email?.split("@")[0]
         || "모험가";
 
     activeUserId = user.id;
+    gamePanel.hidden = true;
+    authPanel.hidden = false;
+    showAuthMessage("스토리 콘텐츠와 캐릭터 기록을 불러오는 중입니다.");
+    try {
+        if (!gameplayContent) {
+            gameplayContent = await fetchGameContent("content/data/gameplay.json", "게임 데이터");
+        }
+        if (!storyContent) {
+            storyContent = await fetchGameContent("content/story/arrival.json", "스토리");
+            const contentErrors = ArcanaStoryEngine.validate(storyContent, gameplayContent);
+            if (contentErrors.length) throw new Error(`스토리 데이터 오류: ${contentErrors.join(" ")}`);
+        }
+        playerState = await loadPlayerState(user, name);
+    } catch (error) {
+        activeUserId = null;
+        let nextStep = "Supabase 프로젝트 오류입니다. 아래 오류 문구를 확인하세요.";
+        if (/player_state|save_player_state|schema cache|does not exist|Could not find the table/i.test(error.message)) {
+            nextStep = "Supabase 저장 테이블 마이그레이션을 적용해야 합니다.";
+        } else if (/다른 탭|changed in another session|revision/i.test(error.message)) {
+            nextStep = "다른 ARCANA 탭을 닫고 새로고침해 주세요.";
+        } else if (/네트워크 요청 실패|Failed to fetch|요청 실패/i.test(error.message)) {
+            nextStep = "네트워크 연결과 현재 실행 주소를 확인해 주세요.";
+        }
+        showAuthMessage(`로그인은 되었지만 게임 준비에 실패했습니다: ${error.message} ${nextStep}`, true);
+        return;
+    }
     authPanel.hidden = true;
+    stopLoginMusic();
     gamePanel.hidden = false;
     accountLabel.textContent = user.email || name;
     output.replaceChildren();
-    player.location = "village";
     beginGame(name);
     input.focus();
+}
+
+async function fetchGameContent(path, label) {
+    if (window.location.protocol === "file:") {
+        throw new Error(`${label} 파일은 file:// 주소에서 읽을 수 없습니다. 프로젝트 폴더에서 HTTP 서버로 실행하세요.`);
+    }
+    let response;
+    try {
+        response = await fetch(path, { cache: "no-cache" });
+    } catch (error) {
+        throw new Error(`${label} 요청 실패 (${new URL(path, window.location.href).href}): ${error.message}`);
+    }
+    if (!response.ok) throw new Error(`${label} 요청 실패 (HTTP ${response.status}, ${path}).`);
+    try {
+        return await response.json();
+    } catch (error) {
+        throw new Error(`${label} JSON 형식 오류 (${path}): ${error.message}`);
+    }
 }
 
 function showLogin() {
@@ -194,6 +477,8 @@ function showLogin() {
     gamePanel.hidden = true;
     authPanel.hidden = false;
     player.name = "";
+    playerState = null;
+    saveRevision = 0;
     showAuthMessage("");
     document.getElementById("authEmail").focus();
 }
@@ -201,7 +486,7 @@ function showLogin() {
 function renderSession(session) {
     if (session?.user) {
         if (activeUserId !== session.user.id) {
-            showGame(session.user);
+            showGame(session.user).catch((error) => showAuthMessage(`게임을 열지 못했습니다: ${error.message}`, true));
         }
         return;
     }
@@ -219,7 +504,7 @@ function initializeSupabase() {
         return;
     }
 
-    const supabaseClient = window.supabase.createClient(
+    supabaseClient = window.supabase.createClient(
         window.ARCANA_SUPABASE_CONFIG.url,
         window.ARCANA_SUPABASE_CONFIG.publishableKey
     );
@@ -351,4 +636,4 @@ function initializeSupabase() {
 }
 
 setAuthMode("login");
-initializeSupabase();
+loadMusicSettings();

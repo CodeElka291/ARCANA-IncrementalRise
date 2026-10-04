@@ -14,7 +14,24 @@
 
 계속하는 한 끝나지 않는 세계</pre>
 
-        <section id="authPanel" aria-labelledby="authTitle">
+        <audio id="loginMusic" src="assets/audio/echoes_of_lumen-epic-background-music-595722.mp3" loop preload="auto"></audio>
+
+        <section id="settingsPanel" aria-labelledby="settingsTitle">
+            <h1 id="settingsTitle">환경 설정</h1>
+            <p>모험을 시작하기 전에 배경 음악을 설정하세요.</p>
+            <label class="setting-option" for="musicEnabled">
+                <input id="musicEnabled" type="checkbox" checked>
+                배경 음악 재생
+            </label>
+            <label class="setting-option" for="musicVolume">
+                음량
+                <input id="musicVolume" type="range" min="0" max="1" step="0.05" value="0.35">
+            </label>
+            <p id="settingsMusicStatus" role="status" aria-live="polite">시작하기를 누르면 음악과 함께 로그인 화면으로 이동합니다.</p>
+            <button id="startGameButton" type="button">시작하기</button>
+        </section>
+
+        <section id="authPanel" aria-labelledby="authTitle" hidden>
             <h1 id="authTitle">기록의 서고에 접속</h1>
             <p id="authDescription">이메일과 비밀번호로 모험가 기록에 로그인하세요.</p>
             <form id="authForm">
@@ -48,6 +65,7 @@
 
                 <button id="authSubmit" type="submit">로그인</button>
             </form>
+            <p id="loginMusicStatus" role="status" aria-live="polite"></p>
             <p id="authMessage" role="status" aria-live="polite"></p>
             <button id="resendConfirmationButton" class="text-button" type="button" hidden>
                 확인 메일 다시 보내기
@@ -79,8 +97,11 @@
     </main>
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.min.js"></script>
-    <script src="supabase-config.js"></script>
-    <script src="app.js"></script>
+    <script src="supabase-config.js?v=1"></script>
+    <script src="game/story-engine.js?v=1"></script>
+    <script src="game/gameplay-engine.js?v=1"></script>
+    <script src="game-state.js?v=1"></script>
+    <script src="app.js?v=20261004-8"></script>
 </body>
 
 </html>
