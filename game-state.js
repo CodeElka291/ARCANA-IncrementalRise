@@ -13,8 +13,9 @@
             location: "village",
             inventory: {},
             equipment: {},
+            gearDurability: {},
             combat: null,
-            unlockedLocations: { village: true, forest: true, market: true },
+            unlockedLocations: { village: true, forest: true, market: true, apothecary: true, weapon_shop: true },
             quests: {},
             questProgress: {},
             questSteps: {},
@@ -28,7 +29,7 @@
         if (!saved || typeof saved !== "object" || Array.isArray(saved)) throw new Error("저장 데이터 형식이 올바르지 않습니다.");
         const defaults = createDefault(name, story);
         const state = { ...defaults, ...saved, name: typeof saved.name === "string" ? saved.name : name };
-        for (const key of ["inventory", "equipment", "unlockedLocations", "quests", "questProgress", "questSteps", "flags", "relations"]) {
+        for (const key of ["inventory", "equipment", "gearDurability", "unlockedLocations", "quests", "questProgress", "questSteps", "flags", "relations"]) {
             if (!state[key] || typeof state[key] !== "object" || Array.isArray(state[key])) throw new Error(`저장 데이터 '${key}' 형식이 올바르지 않습니다.`);
         }
         if (state.combat !== null && (!state.combat || typeof state.combat.monsterId !== "string" || !Number.isFinite(state.combat.hp) || state.combat.hp <= 0)) {

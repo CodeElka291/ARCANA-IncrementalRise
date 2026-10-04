@@ -33,6 +33,8 @@ let supabaseClient = null;
 let playerState = null;
 let storyContent = null;
 let gameplayContent = null;
+let audioCatalog = [];
+let gameMusic = null;
 let saveRevision = 0;
 let saveQueue = Promise.resolve();
 let supabaseInitialized = false;
@@ -96,18 +98,45 @@ function setPrompt() {
 }
 
 function showHelp() {
-    writeLine("사용 가능한 명령어:");
-    writeLine("  보기 (look)       주변을 살펴봅니다.");
-    writeLine("  상태 (status)     현재 상태를 확인합니다.");
-    writeLine("  소지품 (inventory) 소지품을 확인합니다.");
-    writeLine("  이야기             현재 장면과 선택지를 확인합니다.");
-    writeLine("  선택 <번호>         현재 장면의 선택지를 고릅니다.");
-    writeLine("  탐험 / 공격 / 도망  숲에서 자원을 찾고 몬스터와 싸웁니다.");
-    writeLine("  사용 <아이템>       소지품의 아이템을 사용합니다.");
-    writeLine("  구매 물약           장터에서 회복 물약을 삽니다 (5 골드).");
-    writeLine("  상태 / 소지품       캐릭터 진행 상황을 확인합니다.");
-    writeLine("  장터 / 숲 / 마을  해당 장소로 이동합니다.");
-    writeLine("  도움말 (help)     명령어 목록을 확인합니다.");
+    const help = [
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        "              명 령 어",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        "",
+        "[기본]",
+        "  보기       주변을 살펴봅니다",
+        "  상태       캐릭터 상태를 확인합니다",
+        "  소지품     아이템을 확인합니다",
+        "  이야기     현재 이야기와 선택지를 봅니다",
+        "  도움말     이 명령어를 다시 봅니다",
+        "",
+        "[이동]",
+        "  이동 <지역>     다른 지역으로 이동",
+        "  예) 이동 숲",
+        "  또는 지역 이름을 직접 입력",
+        "",
+        "[장비]",
+        "  장착 <아이템>       장비를 착용합니다",
+        "  해제 <무기|방어구>  장비를 해제합니다",
+        "",
+        "[전투]",
+        "  탐험          주변을 탐색합니다",
+        "  공격          적을 공격합니다",
+        "  방어          방어 태세를 취합니다",
+        "  도망          전투에서 도망칩니다",
+        "  사용 <아이템>  아이템을 사용합니다",
+        "",
+        "[상점]",
+        "  목록           판매 상품을 확인합니다",
+        "  구매 <아이템>  아이템을 구매합니다",
+        "  판매 <아이템>  아이템을 판매합니다",
+        "",
+        "[이야기]",
+        "  선택 <번호>  현재 이야기의 선택지를 선택합니다",
+        "  예) 선택 1",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    ].join("\n");
+    writeLine(help, "help-block");
 }
 
 function lookAround() {
@@ -119,6 +148,7 @@ function lookAround() {
     writeLine(`[${location.name}] ${location.description || "주변을 둘러봅니다."}`);
     const exits = (location.exits || []).map((id) => gameplayContent.locations[id]?.name || id);
     if (exits.length) writeLine(`이동 가능한 곳: ${exits.join(", ")} (지역 이름 또는 '이동 <지역>' 입력)`);
+    if (location.shopItems?.length) writeLine("이 상점은 상품을 거래합니다. '목록'으로 진열 상품을 확인하세요.");
     if (player.location === "village") writeLine("검을 들어보거나 책을 펼쳐볼 수 있습니다.");
 }
 
@@ -138,10 +168,11 @@ function moveTo(destination) {
             return;
         }
         if (playerState.combat) {
-            writeLine("전투 중에는 이동할 수 없습니다. '공격'하거나 '도망'을 입력하세요.");
+            writeLine("전투 중에는 이동할 수 없습니다. '공격', '방어' 또는 '도망'을 입력하세요.");
             return;
         }
         playerState.location = target;
+        syncGameMusic();
         setPrompt();
         writeLine(`${gameplayContent.locations[target].name}(으)로 이동합니다.`);
         lookAround();
@@ -193,6 +224,58 @@ function stopLoginMusic() {
     loginMusic.currentTime = 0;
 }
 
+function findAudioTrack(trackId) {
+    return audioCatalog.find((track) => track.id === trackId);
+}
+
+function stopGameMusic() {
+    if (!gameMusic) return;
+    gameMusic.pause();
+    gameMusic.currentTime = 0;
+    gameMusic = null;
+}
+
+function syncGameMusic() {
+    if (!musicEnabledInput.checked || !playerState || !gameplayContent) {
+        stopGameMusic();
+        return;
+    }
+    const location = gameplayContent.locations?.[playerState.location];
+    const trackId = playerState.combat ? gameplayContent.audio?.combatMusicId : location?.ambientAudioId;
+    if (!trackId) {
+        stopGameMusic();
+        return;
+    }
+    if (gameMusic?.datasetTrackId === trackId && !gameMusic.paused) return;
+    const track = findAudioTrack(trackId);
+    if (!track) {
+        stopGameMusic();
+        return;
+    }
+    stopGameMusic();
+    gameMusic = new Audio(track.src);
+    gameMusic.datasetTrackId = trackId;
+    gameMusic.loop = track.loop !== false;
+    gameMusic.volume = Number(musicVolumeInput.value);
+    gameMusic.play().catch(() => {});
+}
+
+function playCombatSound(trackId) {
+    if (!musicEnabledInput.checked || !trackId) return;
+    const track = findAudioTrack(trackId);
+    if (!track) return;
+    const audio = new Audio(track.src);
+    audio.volume = Math.min(1, Number(musicVolumeInput.value) * 1.35);
+    audio.play().catch(() => {});
+}
+
+function playCombatEvents(events = [], monster = null) {
+    if (events.includes("playerAttack")) playCombatSound(gameplayContent.audio?.playerAttackSoundId);
+    if (events.includes("enemyAttack") || events.includes("enemyHeavyAttack")) {
+        playCombatSound(monster?.attackSoundId || gameplayContent.audio?.enemyAttackSoundId);
+    }
+}
+
 function loadMusicSettings() {
     try {
         const savedEnabled = localStorage.getItem("arcana.musicEnabled");
@@ -207,8 +290,21 @@ function loadMusicSettings() {
     updateMusicSettings();
 }
 
-musicEnabledInput.addEventListener("change", updateMusicSettings);
-musicVolumeInput.addEventListener("input", updateMusicSettings);
+musicEnabledInput.addEventListener("change", () => {
+    updateMusicSettings();
+    if (!musicEnabledInput.checked) {
+        loginMusic.pause();
+        stopGameMusic();
+    } else if (!gamePanel.hidden) {
+        syncGameMusic();
+    } else if (settingsPanel.hidden) {
+        startLoginMusic();
+    }
+});
+musicVolumeInput.addEventListener("input", () => {
+    updateMusicSettings();
+    if (gameMusic) gameMusic.volume = Number(musicVolumeInput.value);
+});
 startGameButton.addEventListener("click", async () => {
     updateMusicSettings();
     settingsPanel.hidden = true;
@@ -222,7 +318,20 @@ startGameButton.addEventListener("click", async () => {
 });
 
 function showPlayerStatus() {
-    writeLine(`[상태] ${playerState.name} | 레벨 ${playerState.level} (${playerState.xp}/${playerState.level * 20} XP) | 체력 ${playerState.hp}/${playerState.maxHp} | 골드 ${playerState.gold}`);
+    const weapon = playerState.equipment?.weapon;
+    const armor = playerState.equipment?.armor;
+    const weaponId = typeof weapon === "string" ? weapon : weapon?.itemId;
+    const armorId = typeof armor === "string" ? armor : armor?.itemId;
+    const weaponItem = gameplayContent.items[weaponId];
+    const armorItem = gameplayContent.items[armorId];
+    const weaponReady = weaponItem && (weaponItem.durability <= 0 || (typeof weapon === "string" ? weaponItem.durability : weapon.durability) > 0);
+    const armorReady = armorItem && (armorItem.durability <= 0 || (typeof armor === "string" ? armorItem.durability : armor.durability) > 0);
+    const attack = 4 + Math.floor((playerState.level - 1) / 3)
+        + (weaponReady ? weaponItem.attack || 0 : 0)
+        + (armorReady ? armorItem.attack || 0 : 0);
+    const defense = (armorReady ? armorItem.defense || 0 : 0)
+        + (weaponReady ? weaponItem.defense || 0 : 0);
+    writeLine(`[상태] ${playerState.name} | 레벨 ${playerState.level} (${playerState.xp}/${playerState.level * 20} XP) | 체력 ${playerState.hp}/${playerState.maxHp} | 공격 ${attack} | 방어 ${defense} | 골드 ${playerState.gold}`);
     writeLine(`위치: ${gameplayContent.locations[playerState.location]?.name || playerState.location}`);
     const questStatuses = { active: "진행 중", complete: "완료" };
     const quests = Object.entries(playerState.quests).map(([id, status]) => {
@@ -234,6 +343,16 @@ function showPlayerStatus() {
         return `${quest?.name || id}: ${questStatuses[status] || status}${objectiveProgress}`;
     });
     if (quests.length) writeLine(`퀘스트: ${quests.join(" | ")}`);
+    const equipment = Object.entries(playerState.equipment || {}).filter(([, gear]) => gear);
+    if (equipment.length) {
+        const labels = equipment.map(([slot, gear]) => {
+            const itemId = typeof gear === "string" ? gear : gear.itemId;
+            const item = gameplayContent.items[itemId];
+            const durability = typeof gear === "string" ? item?.durability : gear.durability;
+            return `${slot === "weapon" ? "무기" : "방어구"}: ${item?.name || itemId}${item?.durability > 0 ? ` (${durability}/${item.durability})` : ""}`;
+        });
+        writeLine(`장비: ${labels.join(" | ")}`);
+    }
 }
 
 async function persistPlayerState() {
@@ -337,6 +456,8 @@ async function runCommand(command) {
     } else if (["소지품", "인벤토리", "inventory"].includes(normalized)) {
         const items = Object.entries(playerState.inventory).filter(([, quantity]) => quantity > 0);
         writeLine(items.length ? `[소지품] ${items.map(([id, quantity]) => `${gameplayContent.items[id]?.name || id} x${quantity}`).join(" | ")}` : "[소지품] 비어 있습니다.");
+    } else if (["목록", "상품", "상점", "list", "shop"].includes(normalized)) {
+        ArcanaGameplayEngine.listShopItems(gameplayContent, playerState).messages.forEach((message) => writeLine(message));
     } else if (["이야기", "story"].includes(normalized)) {
         renderStoryNode();
     } else if (normalized.startsWith("선택 ") || normalized.startsWith("choice ")) {
@@ -358,17 +479,63 @@ async function runCommand(command) {
             }
         }
     } else if (["탐험", "조사", "explore"].includes(normalized)) {
-        ArcanaGameplayEngine.explore(gameplayContent, playerState).messages.forEach((message) => writeLine(message));
+        const result = ArcanaGameplayEngine.explore(gameplayContent, playerState);
+        result.messages.forEach((message) => writeLine(message));
+        syncGameMusic();
     } else if (["공격", "attack"].includes(normalized)) {
-        ArcanaGameplayEngine.attack(gameplayContent, playerState).messages.forEach((message) => writeLine(message));
+        const monster = playerState.combat && gameplayContent.monsters[playerState.combat.monsterId];
+        const result = ArcanaGameplayEngine.attack(gameplayContent, playerState);
+        result.messages.forEach((message) => writeLine(message));
+        if (monster) playCombatEvents(result.events, monster);
+        syncGameMusic();
+    } else if (["방어", "막기", "defend", "block"].includes(normalized)) {
+        const monster = playerState.combat && gameplayContent.monsters[playerState.combat.monsterId];
+        const result = ArcanaGameplayEngine.defend(gameplayContent, playerState);
+        result.messages.forEach((message) => writeLine(message));
+        if (monster) playCombatEvents(result.events, monster);
+        syncGameMusic();
     } else if (["도망", "후퇴", "flee"].includes(normalized)) {
         ArcanaGameplayEngine.flee(playerState).messages.forEach((message) => writeLine(message));
+        syncGameMusic();
     } else if (normalized.startsWith("사용 ") || normalized.startsWith("use ")) {
         const item = command.slice(command.indexOf(" ") + 1).trim();
-        ArcanaGameplayEngine.useItem(gameplayContent, playerState, item).messages.forEach((message) => writeLine(message));
+        const monster = playerState.combat && gameplayContent.monsters[playerState.combat.monsterId];
+        const result = ArcanaGameplayEngine.useItem(gameplayContent, playerState, item);
+        result.messages.forEach((message) => writeLine(message));
+        if (result.changed && monster && playerState.combat) {
+            const response = ArcanaGameplayEngine.enemyTurn(gameplayContent, playerState);
+            response.messages.forEach((message) => writeLine(message));
+            playCombatEvents(response.events, monster);
+            syncGameMusic();
+        }
+    } else if (normalized.startsWith("장착 ") || normalized.startsWith("equip ")) {
+        const item = command.slice(command.indexOf(" ") + 1).trim();
+        const monster = playerState.combat && gameplayContent.monsters[playerState.combat.monsterId];
+        const result = ArcanaGameplayEngine.equipItem(gameplayContent, playerState, item);
+        result.messages.forEach((message) => writeLine(message));
+        if (result.changed && monster && playerState.combat) {
+            const response = ArcanaGameplayEngine.enemyTurn(gameplayContent, playerState);
+            response.messages.forEach((message) => writeLine(message));
+            playCombatEvents(response.events, monster);
+        }
+        syncGameMusic();
+    } else if (normalized.startsWith("해제 ") || normalized.startsWith("unequip ")) {
+        const slot = command.slice(command.indexOf(" ") + 1).trim();
+        const monster = playerState.combat && gameplayContent.monsters[playerState.combat.monsterId];
+        const result = ArcanaGameplayEngine.unequipItem(gameplayContent, playerState, slot);
+        result.messages.forEach((message) => writeLine(message));
+        if (result.changed && monster && playerState.combat) {
+            const response = ArcanaGameplayEngine.enemyTurn(gameplayContent, playerState);
+            response.messages.forEach((message) => writeLine(message));
+            playCombatEvents(response.events, monster);
+        }
+        syncGameMusic();
     } else if (normalized.startsWith("구매 ") || normalized.startsWith("buy ")) {
         const item = command.slice(command.indexOf(" ") + 1).trim();
         ArcanaGameplayEngine.buyItem(gameplayContent, playerState, item).messages.forEach((message) => writeLine(message));
+    } else if (normalized.startsWith("판매 ") || normalized.startsWith("sell ")) {
+        const item = command.slice(command.indexOf(" ") + 1).trim();
+        ArcanaGameplayEngine.sellItem(gameplayContent, playerState, item).messages.forEach((message) => writeLine(message));
     } else if (["검", "검을 든다", "검을 들어본다", "검을 들어"].includes(normalized)) {
         writeLine("당신은 낡은 연습용 검을 들어 올립니다. 아직은 검을 휘두르는 것조차 어색합니다.");
     } else if (["책", "책을 펼친다", "책을 펼쳐본다", "읽기"].includes(normalized)) {
@@ -411,6 +578,7 @@ form.addEventListener("submit", (event) => {
                 await persistPlayerState();
             } catch (error) {
                 playerState = JSON.parse(previousState);
+                syncGameMusic();
                 writeLine(`[저장 오류] 변경 사항을 저장하지 못해 캐릭터 상태를 되돌렸습니다: ${error.message}`, "error");
                 setPrompt();
             }
@@ -461,6 +629,14 @@ async function showGame(user) {
         if (!gameplayContent) {
             gameplayContent = await fetchGameContent("content/data/gameplay.json", "게임 데이터");
         }
+        if (!audioCatalog.length) {
+            try {
+                const audioData = await fetchGameContent("game/audio-catalog.json", "오디오 목록");
+                audioCatalog = audioData.tracks || [];
+            } catch (error) {
+                console.warn("오디오 목록을 불러오지 못했습니다.", error);
+            }
+        }
         if (!storyContent) {
             storyContent = await fetchGameContent("content/story/arrival.json", "스토리");
             const contentErrors = ArcanaStoryEngine.validate(storyContent, gameplayContent);
@@ -488,6 +664,7 @@ async function showGame(user) {
     updateMobileGameViewport();
     output.replaceChildren();
     beginGame(name);
+    syncGameMusic();
     input.focus();
 }
 
@@ -511,6 +688,7 @@ async function fetchGameContent(path, label) {
 
 function showLogin() {
     activeUserId = null;
+    stopGameMusic();
     gamePanel.hidden = true;
     titleElement.textContent = "Arcana: The Art of All Things";
     editorLink.hidden = true;

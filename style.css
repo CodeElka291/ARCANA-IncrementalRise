@@ -157,12 +157,22 @@ body.game-active #accountBar {
     margin: 0;
 }
 
+#accountBar .editor-game-link,
+#accountBar #signOutButton {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    min-height: 32px;
+    padding: 6px 8px;
+    font-family: inherit;
+    font-size: 12px;
+    line-height: 1.2;
+}
+
 .editor-game-link {
-    display: inline-block;
-    padding: 7px 10px;
     border: 1px solid #387a38;
     color: #9cff9c;
-    font-size: 12px;
     text-decoration: none;
 }
 
@@ -197,6 +207,16 @@ body.game-active #accountBar {
 
 #output p {
     margin: 0 0 6px;
+}
+
+#output .help-block {
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-wrap: normal;
+    white-space: pre;
+    font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+    font-size: 13px;
+    line-height: 1.55;
 }
 
 #output .command-line {
@@ -314,7 +334,8 @@ body.game-active #accountBar {
         margin: 0 0 8px;
     }
 
-    body.mobile-game-active .editor-game-link {
+    body.mobile-game-active #accountBar .editor-game-link,
+    body.mobile-game-active #accountBar #signOutButton {
         padding: 6px 7px;
         font-size: 11px;
         white-space: nowrap;
@@ -363,13 +384,12 @@ body.game-active #accountBar {
         margin-top: 5px;
     }
 
-    body.mobile-keyboard-open #title,
     body.mobile-keyboard-open .terminal-note {
         display: none;
     }
 
     body.mobile-keyboard-open #accountBar {
-        grid-column: 1 / -1;
+        grid-column: 2;
         justify-content: flex-end;
         margin-bottom: 5px;
     }

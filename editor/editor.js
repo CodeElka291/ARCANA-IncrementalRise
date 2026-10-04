@@ -8,6 +8,7 @@ const graphViewport = $("#graphViewport");
 const storyWorkspace = $("#storyWorkspace");
 const worldWorkspace = $("#worldWorkspace");
 const monsterWorkspace = $("#monsterWorkspace");
+const itemWorkspace = $("#itemWorkspace");
 const inspector = $("#inspector");
 const nodeForm = $("#nodeForm");
 const choicesEditor = $("#choicesEditor");
@@ -19,6 +20,9 @@ const validationList = $("#validationList");
 
 let story = null;
 let gameplay = null;
+let audioTracks = [];
+let previewAudio = null;
+let previewAudioTrackId = null;
 let activeNodeId = null;
 let fileHandle = null;
 let gameplayFileHandle = null;
@@ -27,6 +31,7 @@ let dirty = false;
 let gameplayDirty = false;
 let activeLocationId = null;
 let activeMonsterId = null;
+let activeItemId = null;
 
 function setStatus(message, isError = false) {
     validationTitle.textContent = message;
@@ -41,6 +46,59 @@ function markDirty() {
 function markGameplayDirty() {
     gameplayDirty = true;
     updateFileLabel();
+}
+
+function fillAudioSelect(select, type, selectedId, emptyLabel = "없음") {
+    select.replaceChildren();
+    const emptyOption = document.createElement("option");
+    emptyOption.value = "";
+    emptyOption.textContent = emptyLabel;
+    select.append(emptyOption);
+    for (const track of audioTracks.filter((item) => item.type === type)) {
+        const option = document.createElement("option");
+        option.value = track.id;
+        option.textContent = track.name;
+        select.append(option);
+    }
+    select.value = selectedId || "";
+}
+
+function previewAudioTrack(trackId) {
+    const track = audioTracks.find((item) => item.id === trackId);
+    if (!track) return;
+    if (previewAudio) {
+        const isSameTrackPlaying = previewAudioTrackId === trackId && !previewAudio.paused;
+        previewAudio.pause();
+        previewAudio.currentTime = 0;
+        if (isSameTrackPlaying) {
+            previewAudio = null;
+            previewAudioTrackId = null;
+            return;
+        }
+    }
+    previewAudio = new Audio(`../${track.src}`);
+    previewAudioTrackId = trackId;
+    previewAudio.loop = track.loop !== false;
+    previewAudio.volume = 0.5;
+    previewAudio.play().catch(() => setStatus("미리듣기를 시작할 수 없습니다. 브라우저의 사이트 소리 설정을 확인하세요.", true));
+}
+
+function renderAudioSettings() {
+    gameplay.audio ||= {};
+    const controls = [
+        ["combatMusicSelect", "music", "combatMusicId"],
+        ["playerAttackSoundSelect", "sfx", "playerAttackSoundId"],
+        ["enemyAttackSoundSelect", "sfx", "enemyAttackSoundId"]
+    ];
+    for (const [id, type, key] of controls) {
+        const select = $(`#${id}`);
+        fillAudioSelect(select, type, gameplay.audio[key]);
+        select.onchange = () => {
+            gameplay.audio[key] = select.value || null;
+            markGameplayDirty();
+            showValidation();
+        };
+    }
 }
 
 function updateFileLabel() {
@@ -75,12 +133,43 @@ function validateStory() {
         if (!Array.isArray(location.exits)) errors.push(`지역 '${locationId}' exits는 배열이어야 합니다.`);
         else for (const exit of location.exits) if (!gameplay.locations[exit]) errors.push(`지역 '${locationId}' 출구 '${exit}'을(를) 찾을 수 없습니다.`);
         if (location.monsterId && !gameplay.monsters?.[location.monsterId]) errors.push(`지역 '${locationId}' 몬스터 '${location.monsterId}'을(를) 찾을 수 없습니다.`);
+        if (location.resourceItemId && !gameplay.items?.[location.resourceItemId]) errors.push(`지역 '${locationId}' 자원 아이템 '${location.resourceItemId}'을(를) 찾을 수 없습니다.`);
+        if (location.resourceDropChance !== undefined && (!Number.isFinite(location.resourceDropChance) || location.resourceDropChance < 0 || location.resourceDropChance > 1)) errors.push(`지역 '${locationId}' 탐험 아이템 발견 확률은 0~1 사이여야 합니다.`);
+        if (location.shopItems !== undefined && !Array.isArray(location.shopItems)) errors.push(`지역 '${locationId}' shopItems는 배열이어야 합니다.`);
+        else for (const itemId of location.shopItems || []) if (!gameplay.items?.[itemId]) errors.push(`지역 '${locationId}' 상점 상품 '${itemId}'을(를) 찾을 수 없습니다.`);
         if (!Number.isFinite(location.encounterChance) || location.encounterChance < 0 || location.encounterChance > 1) errors.push(`지역 '${locationId}' 조우 확률은 0~1 사이여야 합니다.`);
+        if (location.ambientAudioId && !audioTracks.some((track) => track.id === location.ambientAudioId && track.type === "ambience")) errors.push(`지역 '${locationId}' 배경음 '${location.ambientAudioId}'을(를) 오디오 목록에서 찾을 수 없습니다.`);
+    }
+    for (const [itemId, item] of Object.entries(gameplay.items || {})) {
+        if (!item.name?.trim()) errors.push(`아이템 '${itemId}' 표시 이름이 필요합니다.`);
+        if (!["consumable", "weapon", "armor", "material", "quest"].includes(item.type)) errors.push(`아이템 '${itemId}' 종류가 올바르지 않습니다.`);
+        if (item.aliases !== undefined && !Array.isArray(item.aliases)) errors.push(`아이템 '${itemId}' aliases는 배열이어야 합니다.`);
+        if (item.price !== undefined && (!Number.isInteger(item.price) || item.price < 0)) errors.push(`아이템 '${itemId}' 구매 가격은 0 이상의 정수여야 합니다.`);
+        if (item.sellPrice !== undefined && (!Number.isInteger(item.sellPrice) || item.sellPrice < 0)) errors.push(`아이템 '${itemId}' 판매 가격은 0 이상의 정수여야 합니다.`);
+        for (const stat of ["heal", "attack", "defense", "durability"]) {
+            if (item[stat] !== undefined && (!Number.isInteger(item[stat]) || item[stat] < 0)) errors.push(`아이템 '${itemId}' ${stat} 값은 0 이상의 정수여야 합니다.`);
+        }
+        if (item.equipmentSlot && !["weapon", "armor"].includes(item.equipmentSlot)) errors.push(`아이템 '${itemId}' 장착 부위가 올바르지 않습니다.`);
+        if (["weapon", "armor"].includes(item.type) && item.equipmentSlot !== item.type) errors.push(`아이템 '${itemId}' 종류와 장착 부위를 일치시켜 주세요.`);
+        if (item.equipmentSlot && !["weapon", "armor"].includes(item.type)) errors.push(`아이템 '${itemId}'은 무기나 방어구만 장착 부위를 가질 수 있습니다.`);
+    }
+    for (const [key, type] of [["combatMusicId", "music"], ["playerAttackSoundId", "sfx"], ["enemyAttackSoundId", "sfx"]]) {
+        const trackId = gameplay.audio?.[key];
+        if (trackId && !audioTracks.some((track) => track.id === trackId && track.type === type)) errors.push(`전투 오디오 '${trackId}'이(가) 오디오 목록에 없거나 유형이 맞지 않습니다.`);
     }
     for (const [monsterId, monster] of Object.entries(gameplay.monsters || {})) {
         if (!monster.name?.trim()) errors.push(`몬스터 '${monsterId}' 표시 이름이 필요합니다.`);
         for (const stat of ["hp", "attack", "xp", "gold"]) {
             if (!Number.isInteger(monster[stat]) || monster[stat] < (stat === "hp" ? 1 : 0)) errors.push(`몬스터 '${monsterId}' ${stat} 값이 올바르지 않습니다.`);
+        }
+        if (monster.heavyAttackDamage !== undefined && (!Number.isInteger(monster.heavyAttackDamage) || monster.heavyAttackDamage < 0)) errors.push(`몬스터 '${monsterId}' 강공격 피해는 0 이상의 정수여야 합니다.`);
+        if (monster.heavyAttackDamage > 0 && (!Number.isInteger(monster.heavyAttackEvery) || monster.heavyAttackEvery < 2)) errors.push(`몬스터 '${monsterId}' 강공격 간격은 2 이상의 정수여야 합니다.`);
+        if (monster.attackSoundId && !audioTracks.some((track) => track.id === monster.attackSoundId && track.type === "sfx")) errors.push(`몬스터 '${monsterId}' 공격 효과음 '${monster.attackSoundId}'을(를) 오디오 목록에서 찾을 수 없습니다.`);
+        if (monster.drops !== undefined && !Array.isArray(monster.drops)) errors.push(`몬스터 '${monsterId}' drops는 배열이어야 합니다.`);
+        for (const [index, drop] of (monster.drops || []).entries()) {
+            if (!gameplay.items?.[drop.itemId]) errors.push(`몬스터 '${monsterId}' 드롭 ${index + 1}: 아이템 '${drop.itemId}'을(를) 찾을 수 없습니다.`);
+            if (!Number.isFinite(drop.chance) || drop.chance < 0 || drop.chance > 1) errors.push(`몬스터 '${monsterId}' 드롭 ${index + 1} 확률은 0~1 사이여야 합니다.`);
+            if (!Number.isInteger(drop.quantity) || drop.quantity < 1) errors.push(`몬스터 '${monsterId}' 드롭 ${index + 1} 수량은 1 이상의 정수여야 합니다.`);
         }
     }
     return errors;
@@ -468,6 +557,65 @@ function renderLocationInspector() {
     $("#locationExplorable").checked = Boolean(location.explorable);
     $("#locationEncounterChance").value = String(location.encounterChance || 0);
     $("#encounterChanceLabel").textContent = `${Math.round((location.encounterChance || 0) * 100)}%`;
+    const ambientAudio = $("#locationAmbientAudio");
+    fillAudioSelect(ambientAudio, "ambience", location.ambientAudioId);
+    ambientAudio.onchange = () => {
+        location.ambientAudioId = ambientAudio.value || null;
+        markGameplayDirty();
+        showValidation();
+    };
+
+    const resourceItemSelect = $("#locationResourceItem");
+    resourceItemSelect.replaceChildren();
+    const noResource = document.createElement("option");
+    noResource.value = "";
+    noResource.textContent = "없음 (골드만 발견)";
+    resourceItemSelect.append(noResource);
+    for (const [id, item] of Object.entries(gameplay.items || {})) {
+        const option = document.createElement("option");
+        option.value = id;
+        option.textContent = `${item.name || id} · ${id}`;
+        resourceItemSelect.append(option);
+    }
+    resourceItemSelect.value = location.resourceItemId || "";
+    const resourceDropChance = $("#locationResourceDropChance");
+    resourceDropChance.value = String(location.resourceDropChance ?? (location.resourceItemId ? 0.5 : 0));
+    $("#resourceDropChanceLabel").textContent = `${Math.round(Number(resourceDropChance.value) * 100)}%`;
+    resourceItemSelect.onchange = () => {
+        location.resourceItemId = resourceItemSelect.value || null;
+        if (location.resourceDropChance === undefined) location.resourceDropChance = location.resourceItemId ? 0.5 : 0;
+        resourceDropChance.value = String(location.resourceDropChance);
+        $("#resourceDropChanceLabel").textContent = `${Math.round(location.resourceDropChance * 100)}%`;
+        markGameplayDirty();
+        showValidation();
+    };
+    resourceDropChance.oninput = () => {
+        location.resourceDropChance = Number(resourceDropChance.value);
+        $("#resourceDropChanceLabel").textContent = `${Math.round(location.resourceDropChance * 100)}%`;
+        markGameplayDirty();
+        showValidation();
+    };
+
+    const shopItems = $("#locationShopItems");
+    shopItems.replaceChildren();
+    for (const [itemId, item] of Object.entries(gameplay.items || {})) {
+        const label = document.createElement("label");
+        label.className = "exit-option";
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.value = itemId;
+        checkbox.checked = (location.shopItems || []).includes(itemId);
+        checkbox.addEventListener("change", () => {
+            const selected = new Set(location.shopItems || []);
+            if (checkbox.checked) selected.add(itemId);
+            else selected.delete(itemId);
+            location.shopItems = [...selected];
+            markGameplayDirty();
+            showValidation();
+        });
+        label.append(checkbox, document.createTextNode(`${item.name || itemId} · ${Number.isInteger(item.price) ? `${item.price} 골드` : "구매가 미설정"}`));
+        shopItems.append(label);
+    }
 
     const exits = $("#locationExits");
     exits.replaceChildren();
@@ -540,7 +688,7 @@ function addLocation() {
     let number = Object.keys(gameplay.locations).length + 1;
     let id = `region_${number}`;
     while (gameplay.locations[id]) id = `region_${++number}`;
-    gameplay.locations[id] = { name: "새 지역", description: "", aliases: [], exits: [], explorable: false, monsterId: null, encounterChance: 0 };
+    gameplay.locations[id] = { name: "새 지역", description: "", aliases: [], exits: [], explorable: false, monsterId: null, encounterChance: 0, shopItems: [] };
     activeLocationId = id;
     markGameplayDirty();
     renderWorldGraph();
@@ -568,7 +716,8 @@ function renderMonsterList() {
         const name = document.createElement("strong");
         name.textContent = monster.name || id;
         const stats = document.createElement("small");
-        stats.textContent = `HP ${monster.hp} · 공격 ${monster.attack} · XP ${monster.xp} · 골드 ${monster.gold}`;
+        const heavyAttack = monster.heavyAttackDamage > 0 ? ` · 강공격 ${monster.heavyAttackDamage} (${monster.heavyAttackEvery}회마다)` : " · 강공격 없음";
+        stats.textContent = `HP ${monster.hp} · 공격 ${monster.attack}${heavyAttack} · XP ${monster.xp} · 골드 ${monster.gold}`;
         card.append(name, stats);
         card.addEventListener("click", () => selectMonster(id));
         list.append(card);
@@ -586,6 +735,75 @@ function selectMonster(id) {
     renderMonsterInspector();
 }
 
+function renderMonsterDrops(monster) {
+    const container = $("#monsterDrops");
+    container.replaceChildren();
+    monster.drops ||= [];
+    monster.drops.forEach((drop, index) => {
+        const row = document.createElement("div");
+        row.className = "monster-drop-row";
+
+        const itemLabel = document.createElement("label");
+        itemLabel.textContent = "아이템";
+        const itemSelect = document.createElement("select");
+        for (const [id, item] of Object.entries(gameplay.items || {})) {
+            const option = document.createElement("option");
+            option.value = id;
+            option.textContent = item.name || id;
+            itemSelect.append(option);
+        }
+        itemSelect.value = drop.itemId || "";
+        itemSelect.addEventListener("change", () => {
+            drop.itemId = itemSelect.value;
+            markGameplayDirty();
+            showValidation();
+        });
+        itemLabel.append(itemSelect);
+
+        const chanceLabel = document.createElement("label");
+        chanceLabel.textContent = "확률 %";
+        const chanceInput = document.createElement("input");
+        chanceInput.type = "number";
+        chanceInput.min = "0";
+        chanceInput.max = "100";
+        chanceInput.step = "1";
+        chanceInput.value = String(Math.round((drop.chance ?? 0.25) * 100));
+        chanceInput.addEventListener("input", () => {
+            drop.chance = Number(chanceInput.value) / 100;
+            markGameplayDirty();
+            showValidation();
+        });
+        chanceLabel.append(chanceInput);
+
+        const quantityLabel = document.createElement("label");
+        quantityLabel.textContent = "수량";
+        const quantityInput = document.createElement("input");
+        quantityInput.type = "number";
+        quantityInput.min = "1";
+        quantityInput.step = "1";
+        quantityInput.value = String(drop.quantity ?? 1);
+        quantityInput.addEventListener("input", () => {
+            drop.quantity = Number(quantityInput.value);
+            markGameplayDirty();
+            showValidation();
+        });
+        quantityLabel.append(quantityInput);
+
+        const removeButton = document.createElement("button");
+        removeButton.type = "button";
+        removeButton.className = "danger";
+        removeButton.textContent = "삭제";
+        removeButton.addEventListener("click", () => {
+            monster.drops.splice(index, 1);
+            markGameplayDirty();
+            renderMonsterDrops(monster);
+            showValidation();
+        });
+        row.append(itemLabel, chanceLabel, quantityLabel, removeButton);
+        container.append(row);
+    });
+}
+
 function renderMonsterInspector() {
     const monster = gameplay?.monsters[activeMonsterId];
     const empty = !monster;
@@ -601,6 +819,17 @@ function renderMonsterInspector() {
     $("#monsterInspectorSubtitle").textContent = activeMonsterId;
     $("#monsterId").value = activeMonsterId;
     for (const field of ["name", "hp", "attack", "xp", "gold"]) $(`#monster${field[0].toUpperCase()}${field.slice(1)}`).value = monster[field] ?? "";
+    $("#monsterHeavyAttackDamage").value = monster.heavyAttackDamage ?? 0;
+    $("#monsterHeavyAttackEvery").value = monster.heavyAttackEvery ?? 3;
+    $("#monsterHeavyAttackTell").value = monster.heavyAttackTell || "";
+    renderMonsterDrops(monster);
+    const attackSound = $("#monsterAttackSound");
+    fillAudioSelect(attackSound, "sfx", monster.attackSoundId);
+    attackSound.onchange = () => {
+        monster.attackSoundId = attackSound.value || null;
+        markGameplayDirty();
+        showValidation();
+    };
     $("#deleteMonsterButton").title = hasMonsterReferences(activeMonsterId) ? "지역 조우 또는 퀘스트 목표에서 사용 중인 몬스터입니다." : "";
     $("#monsterEditMessage").textContent = "";
     $("#monsterName").oninput = () => {
@@ -618,13 +847,25 @@ function renderMonsterInspector() {
             renderMonsterList();
         };
     }
+    for (const [field, elementId] of [["heavyAttackDamage", "monsterHeavyAttackDamage"], ["heavyAttackEvery", "monsterHeavyAttackEvery"]]) {
+        $(`#${elementId}`).oninput = () => {
+            monster[field] = Number($(`#${elementId}`).value);
+            markGameplayDirty();
+            renderMonsterList();
+            showValidation();
+        };
+    }
+    $("#monsterHeavyAttackTell").oninput = () => {
+        monster.heavyAttackTell = $("#monsterHeavyAttackTell").value;
+        markGameplayDirty();
+    };
 }
 
 function addMonster() {
     let number = Object.keys(gameplay.monsters).length + 1;
     let id = `new_monster_${number}`;
     while (gameplay.monsters[id]) id = `new_monster_${++number}`;
-    gameplay.monsters[id] = { name: "새 몬스터", hp: 10, attack: 2, xp: 5, gold: 2 };
+    gameplay.monsters[id] = { name: "새 몬스터", hp: 10, attack: 2, xp: 5, gold: 2, heavyAttackDamage: 0, heavyAttackEvery: 3, heavyAttackTell: "", drops: [] };
     activeMonsterId = id;
     markGameplayDirty();
     renderMonsterList();
@@ -646,8 +887,144 @@ function deleteMonster() {
     showValidation();
 }
 
+function renderItemList() {
+    const list = $("#itemList");
+    list.replaceChildren();
+    for (const [id, item] of Object.entries(gameplay.items || {})) {
+        const card = document.createElement("button");
+        card.type = "button";
+        card.className = `monster-card${id === activeItemId ? " selected" : ""}`;
+        const name = document.createElement("strong");
+        name.textContent = item.name || id;
+        const summary = document.createElement("small");
+        const stats = [];
+        if (Number.isInteger(item.price)) stats.push(`구매 ${item.price}G`);
+        if (item.heal) stats.push(`회복 ${item.heal}`);
+        if (item.attack) stats.push(`공격 +${item.attack}`);
+        if (item.defense) stats.push(`방어 +${item.defense}`);
+        if (item.durability) stats.push(`내구 ${item.durability}`);
+        summary.textContent = `${item.type || "item"} · ${stats.join(" · ") || "능력치 없음"}`;
+        card.append(name, summary);
+        card.addEventListener("click", () => selectItem(id));
+        list.append(card);
+    }
+}
+
+function hasItemReferences(itemId) {
+    if (Object.values(gameplay.locations || {}).some((location) => location.resourceItemId === itemId || (location.shopItems || []).includes(itemId))) return true;
+    return Object.values(story?.nodes || {}).some((node) => {
+        const conditions = [...(node.conditions || []), ...(node.choices || []).flatMap((choice) => choice.conditions || [])];
+        const effects = (node.choices || []).flatMap((choice) => choice.effects || []);
+        return [...conditions, ...effects].some((entry) => entry.itemId === itemId || entry.item === itemId);
+    });
+}
+
+function selectItem(id) {
+    activeItemId = id;
+    renderItemList();
+    renderItemInspector();
+}
+
+function renderItemInspector() {
+    const item = gameplay?.items?.[activeItemId];
+    const empty = !item;
+    $("#itemInspectorEmpty").hidden = !empty;
+    $("#itemForm").hidden = empty;
+    $("#deleteItemButton").disabled = empty || hasItemReferences(activeItemId);
+    if (empty) {
+        $("#itemInspectorTitle").textContent = "아이템 선택";
+        $("#itemInspectorSubtitle").textContent = "목록에서 아이템을 선택하세요.";
+        return;
+    }
+    $("#itemInspectorTitle").textContent = item.name || "아이템 설정";
+    $("#itemInspectorSubtitle").textContent = activeItemId;
+    $("#itemId").value = activeItemId;
+    $("#itemName").value = item.name || "";
+    $("#itemType").value = item.type || "material";
+    $("#itemDescription").value = item.description || "";
+    $("#itemAliases").value = (item.aliases || []).join(", ");
+    $("#itemPrice").value = item.price ?? "";
+    $("#itemSellPrice").value = item.sellPrice ?? "";
+    $("#itemEquipmentSlot").value = item.equipmentSlot || "";
+    for (const field of ["heal", "attack", "defense", "durability"]) $(`#item${field[0].toUpperCase()}${field.slice(1)}`).value = item[field] ?? 0;
+    $("#deleteItemButton").title = hasItemReferences(activeItemId) ? "지역 상점, 탐험 보상 또는 스토리 선택지에서 사용 중인 아이템입니다." : "";
+
+    $("#itemName").oninput = () => {
+        item.name = $("#itemName").value;
+        $("#itemInspectorTitle").textContent = item.name || "아이템 설정";
+        markGameplayDirty();
+        renderItemList();
+        renderLocationInspector();
+    };
+    $("#itemType").onchange = () => {
+        item.type = $("#itemType").value;
+        if (item.type === "weapon") item.equipmentSlot = "weapon";
+        else if (item.type === "armor") item.equipmentSlot = "armor";
+        else item.equipmentSlot = null;
+        $("#itemEquipmentSlot").value = item.equipmentSlot || "";
+        markGameplayDirty();
+        renderItemList();
+        showValidation();
+    };
+    $("#itemDescription").oninput = () => { item.description = $("#itemDescription").value; markGameplayDirty(); };
+    $("#itemAliases").oninput = () => {
+        item.aliases = $("#itemAliases").value.split(",").map((alias) => alias.trim()).filter(Boolean);
+        markGameplayDirty();
+    };
+    for (const [field, id] of [["price", "itemPrice"], ["sellPrice", "itemSellPrice"]]) {
+        $(`#${id}`).oninput = () => {
+            const value = $(`#${id}`).value;
+            if (value === "") delete item[field];
+            else item[field] = Number(value);
+            markGameplayDirty();
+            renderItemList();
+            renderLocationInspector();
+            showValidation();
+        };
+    }
+    $("#itemEquipmentSlot").onchange = () => {
+        item.equipmentSlot = $("#itemEquipmentSlot").value || null;
+        markGameplayDirty();
+        showValidation();
+    };
+    for (const field of ["heal", "attack", "defense", "durability"]) {
+        const id = `item${field[0].toUpperCase()}${field.slice(1)}`;
+        $(`#${id}`).oninput = () => {
+            item[field] = Number($(`#${id}`).value);
+            markGameplayDirty();
+            renderItemList();
+            showValidation();
+        };
+    }
+}
+
+function addItem() {
+    let number = Object.keys(gameplay.items || {}).length + 1;
+    let id = `new_item_${number}`;
+    while (gameplay.items[id]) id = `new_item_${++number}`;
+    gameplay.items[id] = { name: "새 아이템", description: "", type: "material", heal: 0, attack: 0, defense: 0, durability: 0 };
+    activeItemId = id;
+    markGameplayDirty();
+    renderItemList();
+    renderItemInspector();
+    renderLocationInspector();
+    showValidation();
+}
+
+function deleteItem() {
+    if (!activeItemId || hasItemReferences(activeItemId)) return;
+    delete gameplay.items[activeItemId];
+    activeItemId = Object.keys(gameplay.items || {})[0] || null;
+    markGameplayDirty();
+    renderItemList();
+    renderItemInspector();
+    renderLocationInspector();
+    renderQuestTriggers();
+    showValidation();
+}
+
 function setActiveTab(tab) {
-    const workspaces = { story: storyWorkspace, world: worldWorkspace, monsters: monsterWorkspace };
+    const workspaces = { story: storyWorkspace, world: worldWorkspace, monsters: monsterWorkspace, items: itemWorkspace };
     for (const [name, workspace] of Object.entries(workspaces)) {
         workspace.hidden = name !== tab;
         document.querySelector(`[data-tab="${name}"]`).classList.toggle("active", name === tab);
@@ -1006,6 +1383,22 @@ $("#addLocationButton").addEventListener("click", addLocation);
 $("#deleteLocationButton").addEventListener("click", deleteLocation);
 $("#addMonsterButton").addEventListener("click", addMonster);
 $("#deleteMonsterButton").addEventListener("click", deleteMonster);
+$("#addMonsterDropButton").addEventListener("click", () => {
+    const monster = gameplay?.monsters?.[activeMonsterId];
+    if (!monster) return;
+    const firstItemId = Object.keys(gameplay.items || {})[0];
+    if (!firstItemId) return;
+    monster.drops ||= [];
+    monster.drops.push({ itemId: firstItemId, chance: 0.25, quantity: 1 });
+    markGameplayDirty();
+    renderMonsterDrops(monster);
+    showValidation();
+});
+$("#addItemButton").addEventListener("click", addItem);
+$("#deleteItemButton").addEventListener("click", deleteItem);
+document.querySelectorAll("[data-preview-select]").forEach((button) => {
+    button.addEventListener("click", () => previewAudioTrack($(`#${button.dataset.previewSelect}`).value));
+});
 
 window.addEventListener("beforeunload", (event) => {
     if (!dirty && !gameplayDirty) return;
@@ -1017,20 +1410,27 @@ async function initializeEditor() {
     try {
         if (!window.ARCANA_EDITOR_AUTHORIZATION) throw new Error("편집자 계정 확인을 시작하지 못했습니다.");
         if (!await window.ARCANA_EDITOR_AUTHORIZATION) return;
-        const [gameplayResponse, storyResponse] = await Promise.all([
+        const [gameplayResponse, storyResponse, audioResponse] = await Promise.all([
             fetch("../content/data/gameplay.json", { cache: "no-store" }),
-            fetch("../content/story/arrival.json", { cache: "no-store" })
+            fetch("../content/story/arrival.json", { cache: "no-store" }),
+            fetch("../game/audio-catalog.json", { cache: "no-store" })
         ]);
         if (!gameplayResponse.ok) throw new Error(`게임 데이터 요청 실패 (HTTP ${gameplayResponse.status})`);
         if (!storyResponse.ok) throw new Error(`스토리 요청 실패 (HTTP ${storyResponse.status})`);
+        if (!audioResponse.ok) throw new Error(`오디오 목록 요청 실패 (HTTP ${audioResponse.status})`);
         gameplay = await gameplayResponse.json();
+        audioTracks = (await audioResponse.json()).tracks || [];
+        renderAudioSettings();
         activeLocationId = gameplay.locations?.village ? "village" : Object.keys(gameplay.locations || {})[0] || null;
         activeMonsterId = Object.keys(gameplay.monsters || {})[0] || null;
+        activeItemId = Object.keys(gameplay.items || {})[0] || null;
         loadStory(await storyResponse.json(), "arrival.json");
         renderWorldGraph();
         renderLocationInspector();
         renderMonsterList();
         renderMonsterInspector();
+        renderItemList();
+        renderItemInspector();
         setActiveTab("story");
     } catch (error) {
         $("#storyFileLabel").textContent = "파일 로드 실패";

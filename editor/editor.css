@@ -48,8 +48,10 @@ h3 { margin: 0; font-size: 14px; }
 p { margin: 0; }
 
 .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.return-game-link { display: inline-flex; align-items: center; min-height: 36px; padding: 7px 12px; border: 1px solid #596148; border-radius: 7px; color: #c9f59a; text-decoration: none; white-space: nowrap; }
+.return-game-link:hover { border-color: #9ba77a; background: #252830; }
 .file-label { max-width: 220px; overflow: hidden; color: #9297a5; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.editor-tabs { display: flex; gap: 6px; padding: 10px 22px 0; border-bottom: 1px solid #2c2e37; background: #17181f; }
+.editor-tabs { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 22px 0; border-bottom: 1px solid #2c2e37; background: #17181f; }
 .editor-tab { border-bottom-left-radius: 0; border-bottom-right-radius: 0; color: #aeb2bd; background: transparent; }
 .editor-tab.active { color: #c9f59a; border-color: #596148; border-bottom-color: #101116; background: #101116; }
 .global-validation { margin: 12px 18px 0; }
@@ -69,7 +71,7 @@ p { margin: 0; }
 .world-inspector { position: static; height: auto; overflow: visible; }
 .world-inspector label, .monster-detail-panel label { display: block; margin: 13px 0; color: #b8bbc5; font-size: 12px; }
 .world-inspector small { color: #7e8491; }
-.world-inspector input:not([type="checkbox"]), .world-inspector textarea, .world-inspector select, .monster-detail-panel input {
+.world-inspector input:not([type="checkbox"]), .world-inspector textarea, .world-inspector select, .monster-detail-panel input, .monster-detail-panel select, .monster-detail-panel textarea {
     display: block;
     width: 100%;
     margin-top: 6px;
@@ -80,7 +82,7 @@ p { margin: 0; }
     color: #e7e9ef;
     background: #111218;
 }
-.world-inspector input:focus, .world-inspector textarea:focus, .world-inspector select:focus, .monster-detail-panel input:focus { border-color: #9aa878; }
+.world-inspector input:focus, .world-inspector textarea:focus, .world-inspector select:focus, .monster-detail-panel input:focus, .monster-detail-panel select:focus, .monster-detail-panel textarea:focus { border-color: #9aa878; }
 .world-inspector input[readonly], .monster-detail-panel input[readonly] { color: #9ca28d; }
 .world-inspector textarea { resize: vertical; line-height: 1.45; }
 .world-inspector input[type="range"] { padding: 0; accent-color: #b9e889; }
@@ -91,6 +93,11 @@ p { margin: 0; }
 .exit-fieldset { margin: 16px 0; padding: 10px; border: 1px solid #393c46; border-radius: 7px; }
 .exit-fieldset legend { color: #b8bbc5; font-size: 12px; }
 .exit-options { display: grid; gap: 7px; }
+.monster-drops { display: grid; gap: 10px; margin: 10px 0; }
+.monster-drop-row { display: grid; grid-template-columns: minmax(120px, 1fr) 90px 75px auto; gap: 7px; align-items: end; padding: 9px; border: 1px solid #393c46; border-radius: 7px; }
+.monster-drop-row label { margin: 0; }
+.monster-drop-row button { min-height: 35px; }
+.world-inspector fieldset > small, .monster-detail-panel fieldset > small { color: #9297a5; font-size: 11px; }
 .exit-option { display: flex !important; align-items: center; gap: 7px; margin: 0 !important; color: #aeb2bd !important; }
 .exit-option input { margin: 0; }
 
@@ -162,6 +169,8 @@ p { margin: 0; }
 .story-meta label { display: block; margin-top: 9px; color: #b8bbc5; font-size: 11px; }
 .story-meta input, .story-meta select { display: block; width: 100%; margin-top: 5px; padding: 7px; border: 1px solid #393c46; border-radius: 6px; color: #e7e9ef; background: #111218; }
 .story-meta input:focus, .story-meta select:focus { border-color: #9aa878; outline: none; }
+.audio-preview { min-height: 28px; margin: 5px 0 8px; padding: 4px 9px; font-size: 11px; }
+.audio-note { margin-top: 9px; color: #9297a5; font-size: 10px; line-height: 1.4; }
 .meta-row { display: grid; grid-template-columns: 80px minmax(0, 1fr); gap: 10px; }
 .quest-trigger-list { display: grid; gap: 8px; margin-top: 12px; }
 .quest-trigger { padding: 10px; border: 1px solid #3b4038; border-radius: 7px; background: #191c1a; }
@@ -210,6 +219,7 @@ p { margin: 0; }
 @media (max-width: 680px) {
     .workspace { display: flex; flex-direction: column; }
     .world-workspace, .monster-workspace { display: flex; flex-direction: column; }
+    .monster-drop-row { grid-template-columns: minmax(0, 1fr) minmax(72px, 90px); }
     .graph-panel { min-height: 70vh; padding: 14px; }
     .graph-viewport { min-height: 55vh; }
     .inspector { border-top: 1px solid #2c2e37; border-left: 0; }

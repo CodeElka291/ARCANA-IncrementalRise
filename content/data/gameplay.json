@@ -1,5 +1,10 @@
 {
   "version": 1,
+  "audio": {
+    "combatMusicId": "battle_epic",
+    "playerAttackSoundId": "sword_sound",
+    "enemyAttackSoundId": null
+  },
   "quests": {
     "ruins_clue": {
       "name": "폐허의 단서",
@@ -9,15 +14,20 @@
   },
   "items": {
     "torn_record": { "name": "찢어진 기록", "description": "숲 북쪽 폐허를 가리키는 희미한 단서가 적혀 있습니다.", "type": "quest", "price": 0 },
-    "healing_potion": { "name": "회복 물약", "description": "체력을 12 회복합니다.", "type": "consumable", "heal": 12, "price": 5 },
-    "forest_herb": { "name": "숲 약초", "description": "숲에서 발견한 약초입니다.", "type": "material", "price": 1 }
+    "healing_potion": { "name": "회복 물약", "description": "체력을 12 회복합니다.", "type": "consumable", "heal": 12, "price": 5, "sellPrice": 2 },
+    "forest_herb": { "name": "숲 약초", "description": "숲에서 발견한 약초입니다.", "type": "material", "price": 2, "sellPrice": 1 },
+    "wolf_pelt": { "name": "숲늑대 가죽", "description": "숲늑대에게서 얻은 질긴 가죽입니다.", "type": "material", "price": 8, "sellPrice": 4 },
+    "iron_sword": { "name": "수련용 검", "description": "초보 모험가가 쓰기 좋은 검입니다.", "type": "weapon", "equipmentSlot": "weapon", "attack": 3, "defense": 0, "durability": 20, "price": 15, "sellPrice": 7 },
+    "leather_armor": { "name": "가죽 갑옷", "description": "가벼운 가죽으로 만든 방어구입니다.", "type": "armor", "equipmentSlot": "armor", "attack": 0, "defense": 2, "durability": 15, "price": 20, "sellPrice": 10 }
   },
   "monsters": {
-    "forest_wolf": { "name": "숲늑대", "hp": 12, "attack": 3, "xp": 12, "gold": 5 }
+    "forest_wolf": { "name": "숲늑대", "hp": 16, "attack": 3, "xp": 12, "gold": 5, "drops": [{ "itemId": "wolf_pelt", "chance": 0.35, "quantity": 1 }], "attackSoundId": "beast_fin_lizard", "heavyAttackDamage": 12, "heavyAttackEvery": 3, "heavyAttackTell": "숲늑대가 몸을 낮추며 강하게 도약할 준비를 합니다! 다음 공격은 강공격입니다. '방어'로 피해를 크게 줄일 수 있습니다." }
   },
   "locations": {
-    "village": { "name": "초심자의 마을", "description": "낡은 게시판과 작은 여관이 보입니다. 동쪽 길은 장터로, 북쪽 길은 숲으로 이어집니다.", "aliases": ["마을", "마을로", "town", "귀환", "초심자의 마을"], "exits": ["forest", "market"], "explorable": false, "encounterChance": 0 },
-    "forest": { "name": "숲", "description": "나무들이 햇빛을 가리고 있습니다. 멀리서 정체를 알 수 없는 울음소리가 들립니다.", "aliases": ["숲", "숲으로", "숲으로 향한다", "forest", "북쪽"], "exits": ["village"], "explorable": true, "resourceItemId": "forest_herb", "monsterId": "forest_wolf", "encounterChance": 0.6 },
-    "market": { "name": "장터", "description": "상인들의 목소리와 사람들의 발걸음으로 북적입니다. 아직 문을 연 가게는 많지 않습니다.", "aliases": ["장터", "장터로", "장터를 둘러본다", "시장", "market", "동쪽"], "exits": ["village"], "explorable": false, "encounterChance": 0 }
+    "village": { "name": "초심자의 마을", "description": "낡은 게시판과 작은 여관이 보입니다. 동쪽 길은 장터로, 북쪽 길은 숲으로 이어집니다.", "aliases": ["마을", "마을로", "town", "귀환", "초심자의 마을"], "exits": ["forest", "market"], "explorable": false, "encounterChance": 0, "ambientAudioId": "village_square" },
+    "forest": { "name": "숲", "description": "나무들이 햇빛을 가리고 있습니다. 멀리서 정체를 알 수 없는 울음소리가 들립니다.", "aliases": ["숲", "숲으로", "숲으로 향한다", "forest", "북쪽"], "exits": ["village"], "explorable": true, "resourceItemId": "forest_herb", "resourceDropChance": 0.5, "monsterId": "forest_wolf", "encounterChance": 0.6, "ambientAudioId": "nature_birds" },
+    "market": { "name": "장터", "description": "상인들의 목소리와 사람들의 발걸음으로 북적입니다. 안쪽 골목에 약제상과 무기상이 있습니다.", "aliases": ["장터", "장터로", "장터를 둘러본다", "시장", "market", "동쪽"], "exits": ["village", "apothecary", "weapon_shop"], "explorable": false, "encounterChance": 0, "ambientAudioId": "village_square", "shopItems": [] },
+    "apothecary": { "name": "약제상", "description": "약초와 회복 물약을 진열한 작은 약방입니다.", "aliases": ["약제상", "약제상으로", "약방", "약제사", "apothecary"], "exits": ["market"], "explorable": false, "encounterChance": 0, "ambientAudioId": "village_square", "shopItems": ["healing_potion", "forest_herb", "wolf_pelt"] },
+    "weapon_shop": { "name": "무기상", "description": "검과 방어구가 벽에 걸려 있는 무기점입니다.", "aliases": ["무기상", "무기상으로", "무기점", "대장간", "weapon shop"], "exits": ["market"], "explorable": false, "encounterChance": 0, "ambientAudioId": "village_square", "shopItems": ["iron_sword", "leather_armor"] }
   }
 }

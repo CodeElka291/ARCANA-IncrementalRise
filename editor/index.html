@@ -7,7 +7,7 @@
     <script src="../supabase-config.js?v=2"></script>
     <script src="editor-auth.js?v=1"></script>
     <title>ARCANA 스토리 편집기</title>
-    <link rel="stylesheet" href="editor.css?v=5">
+    <link rel="stylesheet" href="editor.css?v=10">
 </head>
 <body>
     <header class="topbar">
@@ -16,6 +16,7 @@
             <h1>스토리 편집기</h1>
         </div>
         <div class="toolbar">
+            <a class="return-game-link" href="../">게임으로 돌아가기</a>
             <span id="storyFileLabel" class="file-label">불러오는 중…</span>
             <button id="openButton" type="button">JSON 열기</button>
             <button id="saveButton" class="primary" type="button">저장</button>
@@ -29,6 +30,7 @@
         <button class="editor-tab active" type="button" data-tab="story">스토리</button>
         <button class="editor-tab" type="button" data-tab="world">월드 맵</button>
         <button class="editor-tab" type="button" data-tab="monsters">몬스터 도감</button>
+        <button class="editor-tab" type="button" data-tab="items">아이템·상점</button>
     </nav>
 
     <section id="validationPanel" class="validation-panel global-validation" aria-live="polite">
@@ -105,6 +107,16 @@
             <p id="worldEditMessage" class="edit-message" aria-live="polite"></p>
         </section>
         <aside class="inspector world-inspector" aria-label="선택한 지역 편집">
+            <section class="story-meta" aria-label="전투 오디오 설정">
+                <h3>전투 오디오</h3>
+                <label>전투 음악 <select id="combatMusicSelect"></select></label>
+                <button class="audio-preview" type="button" data-preview-select="combatMusicSelect">미리듣기</button>
+                <label>플레이어 기본 공격 효과음 <select id="playerAttackSoundSelect"></select></label>
+                <button class="audio-preview" type="button" data-preview-select="playerAttackSoundSelect">미리듣기</button>
+                <label>몬스터 기본 공격 효과음 <select id="enemyAttackSoundSelect"></select></label>
+                <button class="audio-preview" type="button" data-preview-select="enemyAttackSoundSelect">미리듣기</button>
+                <p class="audio-note">몬스터별 공격 효과음은 몬스터 도감에서 따로 지정할 수 있습니다.</p>
+            </section>
             <div class="panel-heading inspector-heading">
                 <div><h2 id="locationInspectorTitle">지역 선택</h2><p id="locationInspectorSubtitle">지도에서 지역을 선택하세요.</p></div>
                 <button id="deleteLocationButton" class="danger" type="button" disabled>지역 삭제</button>
@@ -115,6 +127,14 @@
                 <label>표시 이름 <input id="locationName" type="text"></label>
                 <label>설명 <textarea id="locationDescription" rows="4"></textarea></label>
                 <label>명령어 별칭 <small>쉼표로 구분</small><input id="locationAliases" type="text" placeholder="예: 폐허, 유적"></label>
+                <label>지역 배경음 <select id="locationAmbientAudio"></select></label>
+                <button class="audio-preview" type="button" data-preview-select="locationAmbientAudio">미리듣기</button>
+                <fieldset class="exit-fieldset"><legend>탐험 아이템 보상</legend>
+                    <label>발견 아이템 <select id="locationResourceItem"></select></label>
+                    <label>아이템 발견 확률 <span id="resourceDropChanceLabel"></span><input id="locationResourceDropChance" type="range" min="0" max="1" step="0.05"></label>
+                    <small>몬스터 조우가 없을 때 판정합니다. 아이템을 찾지 못하면 골드를 발견합니다.</small>
+                </fieldset>
+                <fieldset class="exit-fieldset"><legend>이 장소에서 거래할 상품</legend><div id="locationShopItems" class="exit-options"></div></fieldset>
                 <fieldset class="exit-fieldset"><legend>이동 가능한 다음 지역</legend><div id="locationExits" class="exit-options"></div></fieldset>
                 <label class="inline-setting"><input id="locationExplorable" type="checkbox"> 이 지역에서 탐험 허용</label>
                 <label>조우 몬스터 <select id="locationMonster"></select></label>
@@ -137,14 +157,49 @@
                 <label>표시 이름 <input id="monsterName" type="text"></label>
                 <label>체력 <input id="monsterHp" type="number" min="1" step="1"></label>
                 <label>공격력 <input id="monsterAttack" type="number" min="0" step="1"></label>
+                <label>공격 효과음 <select id="monsterAttackSound"></select></label>
+                <button class="audio-preview" type="button" data-preview-select="monsterAttackSound">미리듣기</button>
+                <label>강공격 피해 <small>0이면 강공격을 사용하지 않습니다.</small><input id="monsterHeavyAttackDamage" type="number" min="0" step="1"></label>
+                <label>강공격 간격 <small>몬스터 공격 횟수 기준, 2 이상</small><input id="monsterHeavyAttackEvery" type="number" min="2" step="1"></label>
+                <label>강공격 예고 문구 <textarea id="monsterHeavyAttackTell" rows="3"></textarea></label>
                 <label>경험치 보상 <input id="monsterXp" type="number" min="0" step="1"></label>
                 <label>골드 보상 <input id="monsterGold" type="number" min="0" step="1"></label>
+                <fieldset class="exit-fieldset"><legend>아이템 드롭</legend>
+                    <small>몬스터를 처치하면 아래 각 항목을 설정한 확률로 따로 판정합니다.</small>
+                    <div id="monsterDrops" class="monster-drops"></div>
+                    <button id="addMonsterDropButton" type="button">+ 드롭 아이템</button>
+                </fieldset>
                 <p id="monsterEditMessage" class="edit-message" aria-live="polite"></p>
             </form>
         </section>
     </main>
 
+    <main id="itemWorkspace" class="monster-workspace" hidden>
+        <aside class="monster-list-panel">
+            <div class="panel-heading"><div><h2>아이템 도감</h2><p>아이템 능력치와 가격을 편집하고 각 상점의 재고로 지정합니다.</p></div><button id="addItemButton" type="button">+ 아이템</button></div>
+            <div id="itemList" class="monster-list"></div>
+        </aside>
+        <section class="monster-detail-panel inspector">
+            <div class="panel-heading inspector-heading"><div><h2 id="itemInspectorTitle">아이템 선택</h2><p id="itemInspectorSubtitle">목록에서 아이템을 선택하세요.</p></div><button id="deleteItemButton" class="danger" type="button" disabled>아이템 삭제</button></div>
+            <div id="itemInspectorEmpty" class="empty-inspector">아이템 도감에서 항목을 선택하거나 새 아이템을 추가하세요.</div>
+            <form id="itemForm" hidden>
+                <label>아이템 ID <input id="itemId" type="text" readonly></label>
+                <label>표시 이름 <input id="itemName" type="text"></label>
+                <label>종류 <select id="itemType"><option value="consumable">소모품</option><option value="weapon">무기</option><option value="armor">방어구</option><option value="material">재료</option><option value="quest">퀘스트 아이템</option></select></label>
+                <label>설명 <textarea id="itemDescription" rows="3"></textarea></label>
+                <label>명령어 별칭 <small>쉼표로 구분</small><input id="itemAliases" type="text" placeholder="예: 포션, 회복약"></label>
+                <label>구매 가격 <small>비워두면 상점에서 구매할 수 없습니다.</small><input id="itemPrice" type="number" min="0" step="1"></label>
+                <label>판매 가격 <small>비워두면 구매 가격의 절반으로 판매합니다. 0이면 판매 불가.</small><input id="itemSellPrice" type="number" min="0" step="1"></label>
+                <label>장착 부위 <select id="itemEquipmentSlot"><option value="">장착 불가</option><option value="weapon">무기</option><option value="armor">방어구</option></select></label>
+                <label>회복량 <input id="itemHeal" type="number" min="0" step="1"></label>
+                <label>공격력 <input id="itemAttack" type="number" min="0" step="1"></label>
+                <label>방어력 <input id="itemDefense" type="number" min="0" step="1"></label>
+                <label>내구도 <small>0이면 내구도가 닳지 않습니다.</small><input id="itemDurability" type="number" min="0" step="1"></label>
+            </form>
+        </section>
+    </main>
+
     <script src="../game/story-engine.js"></script>
-    <script src="editor.js?v=7"></script>
+    <script src="editor.js?v=15"></script>
 </body>
 </html>
