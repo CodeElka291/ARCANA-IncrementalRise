@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "quests": {
+    "ruins_clue": { "name": "폐허의 단서", "description": "숲늑대를 물리치고 폐허로 향하는 길을 확인합니다." }
+  },
+  "items": {
+    "torn_record": { "name": "찢어진 기록", "description": "숲 북쪽 폐허를 가리키는 희미한 단서가 적혀 있습니다.", "type": "quest", "price": 0 },
+    "healing_potion": { "name": "회복 물약", "description": "체력을 12 회복합니다.", "type": "consumable", "heal": 12, "price": 5 },
+    "forest_herb": { "name": "숲 약초", "description": "숲에서 발견한 약초입니다.", "type": "material", "price": 1 }
+  },
+  "monsters": {
+    "forest_wolf": { "name": "숲늑대", "hp": 12, "attack": 3, "xp": 12, "gold": 5 }
+  },
+  "locations": {
+    "village": { "name": "초심자의 마을", "exits": ["forest", "market"] },
+    "forest": { "name": "숲", "exits": ["village"], "monsterId": "forest_wolf", "encounterChance": 0.6 },
+    "market": { "name": "장터", "exits": ["village"] }
+  }
+}
