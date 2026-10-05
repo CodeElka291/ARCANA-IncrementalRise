@@ -65,7 +65,9 @@
             }
         }
         state.activeStation = stationId;
-        messages.push(station.enterText || `${station.name}의 안쪽 공간이 열립니다. '넣기 <아이템>'으로 재료를 하나씩 넣으세요. 필요한 개수만큼 반복하면 조합됩니다.`);
+        const entryText = station.enterText || `${station.name}의 안쪽 공간이 열립니다.`;
+        messages.push(entryText.replace(/필요한 개수만큼 반복하면 조합됩니다\.?/g, "필요한 개수만큼 반복해 담은 뒤 '조합'을 입력하세요."));
+        messages.push("재료는 자동 조합되지 않습니다. '넣기 <아이템>'으로 하나씩 담은 뒤 '조합'을 입력하세요. 잘못 넣은 재료는 '빼기 <아이템>'으로 돌려놓을 수 있습니다.");
         const stored = state.stationIngredients?.[stationId] || [];
         if (stored.length) messages.push(`장치에 넣어 둔 재료: ${describeStationIngredients(data, stored)}`);
         return { messages, changed: true };
@@ -96,7 +98,6 @@
         const [stationId, station] = found;
         if (!isStationUnlocked(state, stationId, station)) return { messages: [`${station.name}은(는) 아직 잠겨 있습니다.`], changed: false };
         const recipes = Object.entries(data.recipes || {}).filter(([id, recipe]) => recipe.stationId === stationId && (recipe.discoveredByDefault !== false || state.discoveredRecipes?.[id] === true));
-        if (!recipes.length) return { messages: ["아직 알려진 조합법이 없습니다."], changed: false };
         const lines = recipes.map(([id, recipe], index) => {
             const ingredients = (recipe.ingredients || []).flatMap((entry) => Array.from({ length: entry.quantity }, () => data.items?.[entry.itemId]?.name || entry.itemId)).join(" + ");
             const output = recipe.outcomes?.length > 1 ? "결과 미상" : `${data.items?.[(recipe.output || recipe.outcomes?.[0])?.itemId]?.name || "결과 미상"}`;
@@ -104,10 +105,13 @@
         });
         const staged = state.stationIngredients?.[stationId] || [];
         const stagedMessage = staged.length ? `현재 장치 안: ${describeStationIngredients(data, staged)}` : "현재 장치 안: 비어 있음";
-        return { messages: [`[${station.name} 조합법]`, ...lines, stagedMessage, "'넣기 아이템명'으로 한 개씩 넣으세요. 알려진 조합과 맞지 않으면 투입한 재료는 사라집니다."], changed: false };
+        return {
+            messages: [`[${station.name} 조합법]`, ...(lines.length ? lines : ["아직 알려진 조합법이 없습니다. 재료를 넣고 직접 조합해 볼 수 있습니다."]), stagedMessage, "재료는 '넣기 아이템명'으로 하나씩 담으세요. '조합'을 입력해야 판정하며, 실패하면 장치 안 재료가 사라집니다."],
+            changed: false
+        };
     }
 
-    function submitStationIngredients(data, state, offerings, random = Math.random) {
+    function submitStationIngredients(data, state, offerings) {
         const stationId = state.activeStation;
         const station = data.stations?.[stationId];
         if (!station || !isStationUnlocked(state, stationId, station)) return { messages: ["사용 중인 장치가 없습니다."], changed: false };
@@ -123,6 +127,33 @@
         const item = data.items[itemId];
         const durability = removeItemFromInventory(state, itemId, item);
         staged.push({ itemId, durability });
+        return { messages: [`${item.name}을(를) 장치에 넣었습니다. 현재 재료: ${describeStationIngredients(data, staged)}. 조합하려면 '조합'을 입력하세요.`], changed: true };
+    }
+
+    function removeStationIngredient(data, state, rawItemName) {
+        const stationId = state.activeStation;
+        const station = data.stations?.[stationId];
+        if (!station || !isStationUnlocked(state, stationId, station)) return { messages: ["사용 중인 장치가 없습니다."], changed: false };
+        const found = findItem(data, rawItemName);
+        if (!found) return { messages: [`아이템을 찾을 수 없습니다: ${rawItemName}`], changed: false };
+        const [itemId, item] = found;
+        const staged = state.stationIngredients?.[stationId] || [];
+        const index = staged.findIndex((entry) => (typeof entry === "string" ? entry : entry.itemId) === itemId);
+        if (index < 0) return { messages: [`장치 안에 ${item.name}이(가) 없습니다.`], changed: false };
+        const [removed] = staged.splice(index, 1);
+        const durability = typeof removed === "string" ? item.durability || 0 : removed.durability;
+        addItemToInventory(state, itemId, item, durability);
+        if (!staged.length) delete state.stationIngredients[stationId];
+        const remaining = staged.length ? ` 남은 재료: ${describeStationIngredients(data, staged)}.` : " 장치 안이 비었습니다.";
+        return { messages: [`${item.name}을(를) 소지품으로 돌려놓았습니다.${remaining}`], changed: true };
+    }
+
+    function combineStationIngredients(data, state, random = Math.random) {
+        const stationId = state.activeStation;
+        const station = data.stations?.[stationId];
+        if (!station || !isStationUnlocked(state, stationId, station)) return { messages: ["사용 중인 장치가 없습니다."], changed: false };
+        const staged = state.stationIngredients?.[stationId] || [];
+        if (!staged.length) return { messages: ["조합할 재료가 없습니다. 먼저 '넣기 <아이템>'으로 재료를 담으세요."], changed: false };
         const stagedCounts = ingredientCounts(staged);
         const recipeEntry = Object.entries(data.recipes || {}).find(([id, recipe]) => {
             if (recipe.stationId !== stationId) return false;
@@ -131,21 +162,21 @@
             for (const ingredient of recipe.ingredients || []) required[ingredient.itemId] = (required[ingredient.itemId] || 0) + ingredient.quantity;
             return Object.keys(required).length === Object.keys(stagedCounts).length && Object.entries(required).every(([id, quantity]) => stagedCounts[id] === quantity);
         });
-        const knownRecipes = Object.entries(data.recipes || {}).filter(([id, recipe]) => recipe.stationId === stationId && (recipe.discoveredByDefault !== false || state.discoveredRecipes?.[id] === true));
-        const remainsPossible = knownRecipes.some(([, recipe]) => {
-            const required = {};
-            for (const ingredient of recipe.ingredients || []) required[ingredient.itemId] = (required[ingredient.itemId] || 0) + ingredient.quantity;
-            return Object.entries(stagedCounts).every(([id, quantity]) => quantity <= (required[id] || 0));
-        });
-        if (!recipeEntry && remainsPossible) return { messages: [`${data.items[itemId].name}을(를) 넣었습니다. 현재 장치 안: ${describeStationIngredients(data, staged)}`], changed: true };
-        if (!recipeEntry && !remainsPossible) {
+        if (!recipeEntry) {
             delete state.stationIngredients[stationId];
             return { messages: [station.failureText || "재료가 빛을 내다 흩어졌습니다. 조합은 실패했고, 넣은 재료가 사라졌습니다."], changed: true };
         }
 
         const [recipeId, recipe] = recipeEntry;
-        const preserved = staged.find((ingredient) => data.items[ingredient.itemId]?.equipmentSlot);
-        const preservedDurability = preserved ? { slot: data.items[preserved.itemId].equipmentSlot, durability: preserved.durability } : null;
+        const preserved = staged.find((ingredient) => {
+            const itemId = typeof ingredient === "string" ? ingredient : ingredient.itemId;
+            return data.items[itemId]?.equipmentSlot;
+        });
+        const preservedItemId = preserved ? (typeof preserved === "string" ? preserved : preserved.itemId) : null;
+        const preservedDurability = preserved ? {
+            slot: data.items[preservedItemId].equipmentSlot,
+            durability: typeof preserved === "string" ? data.items[preservedItemId].durability || 0 : preserved.durability
+        } : null;
         delete state.stationIngredients[stationId];
         let output = recipe.output;
         if (Array.isArray(recipe.outcomes) && recipe.outcomes.length) {
@@ -437,5 +468,5 @@
         return { messages: [`${gear.item.name}을(를) 해제했습니다.`], changed: true };
     }
 
-    global.ArcanaGameplayEngine = { explore, attack, defend, enemyTurn, flee, useItem, buyItem, sellItem, listShopItems, equipItem, unequipItem, enterStation, leaveStation, listStationRecipes, submitStationIngredients, grantXp };
+    global.ArcanaGameplayEngine = { explore, attack, defend, enemyTurn, flee, useItem, buyItem, sellItem, listShopItems, equipItem, unequipItem, enterStation, leaveStation, listStationRecipes, submitStationIngredients, removeStationIngredient, combineStationIngredients, grantXp };
 })(window);

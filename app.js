@@ -144,7 +144,7 @@ function showHelp() {
     if (availableStations.length) {
         help.push("", "[변환 장치]");
         for (const [, station] of availableStations) help.push(`  ${station.name}  장치에 들어갑니다`);
-        help.push("  장치 안: 레시피 / 넣기 <아이템> (한 번에 하나씩) / 나가기");
+        help.push("  장치 안: 레시피 / 넣기 <아이템> / 빼기 <아이템> / 조합 / 나가기");
     }
     help.push("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     writeLine(help.join("\n"), "help-block");
@@ -171,11 +171,22 @@ function handleStationCommand(command, normalized) {
     }
     if (["도움말", "help", "?"].includes(normalized)) {
         const station = gameplayContent.stations[playerState.activeStation];
-        writeLine(`${station.name}: '레시피'로 조합법을 보고, '넣기 아이템명'으로 재료를 하나씩 넣으세요. 필요한 개수만큼 반복하면 조합됩니다. '나가기'로 장치를 나옵니다.`);
+        writeLine(`${station.name}: '넣기 아이템명'으로 재료를 하나씩 담으세요. 모든 재료를 넣은 뒤 '조합'을 입력해야 판정합니다. 잘못 넣은 재료는 '빼기 아이템명'으로 돌려놓을 수 있습니다. '레시피'로 현재 재료와 알려진 조합을 확인하세요.`);
         return;
     }
     if (["레시피", "목록", "recipes"].includes(normalized)) {
         ArcanaGameplayEngine.listStationRecipes(gameplayContent, playerState).messages.forEach((message) => writeLine(message));
+        return;
+    }
+    if (["조합", "combine", "transmute"].includes(normalized)) {
+        const result = ArcanaGameplayEngine.combineStationIngredients(gameplayContent, playerState);
+        result.messages.forEach((message) => writeLine(message));
+        return;
+    }
+    if (normalized.startsWith("빼기 ") || normalized.startsWith("remove ")) {
+        const raw = command.slice(command.indexOf(" ") + 1).trim();
+        const result = ArcanaGameplayEngine.removeStationIngredient(gameplayContent, playerState, raw);
+        result.messages.forEach((message) => writeLine(message));
         return;
     }
     if (normalized.startsWith("넣기 ") || normalized.startsWith("insert ")) {
@@ -184,7 +195,7 @@ function handleStationCommand(command, normalized) {
         result.messages.forEach((message) => writeLine(message));
         return;
     }
-    writeLine("장치 안에서는 '레시피', '넣기 <아이템>' (한 번에 하나씩), '나가기'를 사용할 수 있습니다.");
+    writeLine("장치 안에서는 '레시피', '넣기 <아이템>', '빼기 <아이템>', '조합', '나가기'를 사용할 수 있습니다.");
 }
 
 function lookAround() {
