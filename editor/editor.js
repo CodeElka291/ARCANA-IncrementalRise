@@ -30,6 +30,8 @@ let gameplayFileHandle = null;
 let currentFileName = "arrival.json";
 let dirty = false;
 let gameplayDirty = false;
+let contentRevision = 0;
+let contentNeedsPublish = false;
 let activeLocationId = null;
 let activeMonsterId = null;
 let activeItemId = null;
@@ -106,7 +108,8 @@ function renderAudioSettings() {
 
 function updateFileLabel() {
     const changes = [dirty && "스토리 수정됨", gameplayDirty && "게임 데이터 수정됨"].filter(Boolean);
-    $("#storyFileLabel").textContent = `${currentFileName}${changes.length ? ` · ${changes.join(" · ")}` : ""}`;
+    const storageLabel = contentNeedsPublish ? "Supabase 최초 저장 필요" : `Supabase · r${contentRevision}`;
+    $("#storyFileLabel").textContent = `${storageLabel}${changes.length ? ` · ${changes.join(" · ")}` : ""}`;
 }
 
 function parseArray(value, label) {
@@ -1658,6 +1661,8 @@ async function openStoryFile() {
             const file = await handle.getFile();
             const data = JSON.parse(await file.text());
             loadStory(data, file.name, handle);
+            markDirty();
+            showValidation();
             return;
         } catch (error) {
             if (error.name === "AbortError") return;
@@ -1673,6 +1678,8 @@ fileInput.addEventListener("change", async () => {
     if (!file) return;
     try {
         loadStory(JSON.parse(await file.text()), file.name);
+        markDirty();
+        showValidation();
     } catch (error) {
         setStatus(`파일을 열지 못했습니다: ${error.message}`, true);
     } finally {
@@ -1687,60 +1694,25 @@ async function saveStory() {
         return;
     }
     if (!showValidation()) return;
-    const saveStoryFile = dirty;
-    const saveGameplayFile = gameplayDirty;
-    if (!saveStoryFile && !saveGameplayFile) {
+    if (!dirty && !gameplayDirty && !contentNeedsPublish) {
         setStatus("저장할 변경 사항이 없습니다.");
         return;
     }
     try {
-        let nextStoryHandle = fileHandle;
-        let nextGameplayHandle = gameplayFileHandle;
-        if (window.showSaveFilePicker) {
-            if (saveStoryFile && !nextStoryHandle) {
-                nextStoryHandle = await window.showSaveFilePicker({
-                    suggestedName: currentFileName,
-                    types: [{ description: "ARCANA 스토리 JSON", accept: { "application/json": [".json"] } }]
-                });
-            }
-            if (saveGameplayFile && !nextGameplayHandle) {
-                nextGameplayHandle = await window.showSaveFilePicker({
-                    suggestedName: "gameplay.json",
-                    types: [{ description: "ARCANA 게임 데이터 JSON", accept: { "application/json": [".json"] } }]
-                });
-            }
-        }
-
-        const writeOrDownload = async (contents, handle, fileName) => {
-            if (handle) {
-                const writable = await handle.createWritable();
-                await writable.write(contents);
-                await writable.close();
-                return handle;
-            }
-            const blob = new Blob([contents], { type: "application/json;charset=utf-8" });
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement("a");
-            link.href = url;
-            link.download = fileName;
-            link.click();
-            URL.revokeObjectURL(url);
-            return null;
-        };
-
-        if (saveStoryFile) {
-            fileHandle = await writeOrDownload(`${JSON.stringify(story, null, 2)}\n`, nextStoryHandle, currentFileName);
-            currentFileName = fileHandle?.name || currentFileName;
-            dirty = false;
-        }
-        if (saveGameplayFile) {
-            gameplayFileHandle = await writeOrDownload(`${JSON.stringify(gameplay, null, 2)}\n`, nextGameplayHandle, "gameplay.json");
-            gameplayDirty = false;
-        }
+        contentRevision = await ArcanaGameContentStore.save(
+            window.ARCANA_EDITOR_CLIENT,
+            window.ARCANA_EDITOR_USER?.id,
+            gameplay,
+            story,
+            contentRevision
+        );
+        contentNeedsPublish = false;
+        dirty = false;
+        gameplayDirty = false;
         updateFileLabel();
-        setStatus("저장했습니다. 게임에 반영하려면 ARCANA 페이지를 새로고침하세요.");
+        setStatus("Supabase에 저장했습니다. 게임에 적용하려면 ARCANA 페이지를 새로고침하세요.");
     } catch (error) {
-        if (error.name !== "AbortError") setStatus(`저장하지 못했습니다: ${error.message}`, true);
+        setStatus(`Supabase에 저장하지 못했습니다: ${error.message}`, true);
     }
 }
 
@@ -1791,15 +1763,30 @@ async function initializeEditor() {
     try {
         if (!window.ARCANA_EDITOR_AUTHORIZATION) throw new Error("편집자 계정 확인을 시작하지 못했습니다.");
         if (!await window.ARCANA_EDITOR_AUTHORIZATION) return;
-        const [gameplayResponse, storyResponse, audioResponse] = await Promise.all([
-            fetch("../content/data/gameplay.json", { cache: "no-store" }),
-            fetch("../content/story/arrival.json", { cache: "no-store" }),
-            fetch("../game/audio-catalog.json", { cache: "no-store" })
+        const [audioResponse, published] = await Promise.all([
+            fetch("../game/audio-catalog.json", { cache: "no-store" }),
+            ArcanaGameContentStore.read(window.ARCANA_EDITOR_CLIENT).catch((error) => ({ readError: error }))
         ]);
-        if (!gameplayResponse.ok) throw new Error(`게임 데이터 요청 실패 (HTTP ${gameplayResponse.status})`);
-        if (!storyResponse.ok) throw new Error(`스토리 요청 실패 (HTTP ${storyResponse.status})`);
         if (!audioResponse.ok) throw new Error(`오디오 목록 요청 실패 (HTTP ${audioResponse.status})`);
-        gameplay = await gameplayResponse.json();
+        let storyData;
+        const contentLoadError = published?.readError || null;
+        if (published && !published.readError) {
+            gameplay = published.gameplay;
+            storyData = published.story;
+            contentRevision = published.revision;
+            contentNeedsPublish = false;
+        } else {
+            const [gameplayResponse, storyResponse] = await Promise.all([
+                fetch("../content/data/gameplay.json", { cache: "no-store" }),
+                fetch("../content/story/arrival.json", { cache: "no-store" })
+            ]);
+            if (!gameplayResponse.ok) throw new Error(`게임 데이터 요청 실패 (HTTP ${gameplayResponse.status})`);
+            if (!storyResponse.ok) throw new Error(`스토리 요청 실패 (HTTP ${storyResponse.status})`);
+            gameplay = await gameplayResponse.json();
+            storyData = await storyResponse.json();
+            contentRevision = 0;
+            contentNeedsPublish = true;
+        }
         audioTracks = (await audioResponse.json()).tracks || [];
         renderAudioSettings();
         activeLocationId = gameplay.locations?.village ? "village" : Object.keys(gameplay.locations || {})[0] || null;
@@ -1807,7 +1794,7 @@ async function initializeEditor() {
         activeItemId = Object.keys(gameplay.items || {})[0] || null;
         activeStationId = Object.keys(gameplay.stations || {})[0] || null;
         activeRecipeId = Object.entries(gameplay.recipes || {}).find(([, recipe]) => recipe.stationId === activeStationId)?.[0] || null;
-        loadStory(await storyResponse.json(), "arrival.json");
+        loadStory(storyData, "arrival.json");
         renderWorldGraph();
         renderLocationInspector();
         renderMonsterList();
@@ -1817,6 +1804,12 @@ async function initializeEditor() {
         renderStationList();
         renderStationInspector();
         setActiveTab("story");
+        updateFileLabel();
+        if (contentLoadError) {
+            setStatus(`Supabase 콘텐츠를 읽지 못했습니다. 기본 JSON으로 열었습니다. 테이블 마이그레이션과 권한을 확인하세요. (${contentLoadError.message})`, true);
+        } else if (contentNeedsPublish) {
+            setStatus("Supabase에 콘텐츠가 아직 없습니다. 기본 데이터를 확인한 뒤 저장을 눌러 Supabase에 최초 등록하세요.");
+        }
     } catch (error) {
         $("#storyFileLabel").textContent = "파일 로드 실패";
         setStatus(`편집기를 불러오지 못했습니다: ${error.message} · 프로젝트 HTTP 서버에서 /editor/를 여세요.`, true);

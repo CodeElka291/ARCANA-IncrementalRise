@@ -9,6 +9,7 @@ if (!editorEmail || !window.supabase?.createClient || !window.ARCANA_SUPABASE_CO
         window.ARCANA_SUPABASE_CONFIG.url,
         window.ARCANA_SUPABASE_CONFIG.publishableKey
     );
+    window.ARCANA_EDITOR_CLIENT = editorAuthClient;
 
     window.ARCANA_EDITOR_AUTHORIZATION = (async () => {
         try {
@@ -17,6 +18,7 @@ if (!editorEmail || !window.supabase?.createClient || !window.ARCANA_SUPABASE_CO
                 window.location.replace("../");
                 return false;
             }
+            window.ARCANA_EDITOR_USER = data.user;
             document.documentElement.dataset.editorAuthorized = "true";
             return true;
         } catch {

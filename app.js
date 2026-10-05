@@ -33,6 +33,7 @@ let supabaseClient = null;
 let playerState = null;
 let storyContent = null;
 let gameplayContent = null;
+let contentSourceNotice = "";
 let audioCatalog = [];
 let gameMusic = null;
 let saveRevision = 0;
@@ -695,9 +696,7 @@ async function showGame(user) {
     authPanel.hidden = false;
     showAuthMessage("스토리 콘텐츠와 캐릭터 기록을 불러오는 중입니다.");
     try {
-        if (!gameplayContent) {
-            gameplayContent = await fetchGameContent("content/data/gameplay.json", "게임 데이터");
-        }
+        if (!gameplayContent || !storyContent) await loadGameContent();
         if (!audioCatalog.length) {
             try {
                 const audioData = await fetchGameContent("game/audio-catalog.json", "오디오 목록");
@@ -705,11 +704,6 @@ async function showGame(user) {
             } catch (error) {
                 console.warn("오디오 목록을 불러오지 못했습니다.", error);
             }
-        }
-        if (!storyContent) {
-            storyContent = await fetchGameContent("content/story/arrival.json", "스토리");
-            const contentErrors = ArcanaStoryEngine.validate(storyContent, gameplayContent);
-            if (contentErrors.length) throw new Error(`스토리 데이터 오류: ${contentErrors.join(" ")}`);
         }
         playerState = await loadPlayerState(user, name);
     } catch (error) {
@@ -733,8 +727,37 @@ async function showGame(user) {
     updateMobileGameViewport();
     output.replaceChildren();
     beginGame(name);
+    if (contentSourceNotice) writeLine(`[콘텐츠 안내] ${contentSourceNotice}`, "system");
     syncGameMusic();
     input.focus();
+}
+
+async function loadGameContent() {
+    contentSourceNotice = "";
+    let published = null;
+    let readError = null;
+    try {
+        published = await ArcanaGameContentStore.read(supabaseClient);
+    } catch (error) {
+        readError = error;
+        console.warn("Supabase 게임 콘텐츠를 불러오지 못했습니다. 기본 JSON으로 전환합니다.", error);
+    }
+
+    if (published) {
+        gameplayContent = published.gameplay;
+        storyContent = published.story;
+    } else {
+        [gameplayContent, storyContent] = await Promise.all([
+            fetchGameContent("content/data/gameplay.json", "게임 데이터"),
+            fetchGameContent("content/story/arrival.json", "스토리")
+        ]);
+        contentSourceNotice = readError
+            ? `Supabase 콘텐츠 조회에 실패해 기본 데이터를 사용 중입니다. ${readError.message}`
+            : "Supabase에 게시된 콘텐츠가 없어 기본 데이터를 사용 중입니다. 편집기에서 콘텐츠를 저장해 주세요.";
+    }
+
+    const contentErrors = ArcanaStoryEngine.validate(storyContent, gameplayContent);
+    if (contentErrors.length) throw new Error(`스토리 데이터 오류: ${contentErrors.join(" ")}`);
 }
 
 async function fetchGameContent(path, label) {

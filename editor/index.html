@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.min.js"></script>
     <script src="../supabase-config.js?v=2"></script>
-    <script src="editor-auth.js?v=1"></script>
+    <script src="editor-auth.js?v=2"></script>
     <title>ARCANA 스토리 편집기</title>
     <link rel="stylesheet" href="editor.css?v=12">
 </head>
@@ -19,7 +19,7 @@
             <a class="return-game-link" href="../">게임으로 돌아가기</a>
             <span id="storyFileLabel" class="file-label">불러오는 중…</span>
             <button id="openButton" type="button">JSON 열기</button>
-            <button id="saveButton" class="primary" type="button">저장</button>
+            <button id="saveButton" class="primary" type="button" title="스토리와 게임 데이터를 Supabase에 저장합니다.">Supabase 저장</button>
             <button id="validateButton" type="button">검증</button>
             <button id="addNodeButton" type="button">+ 장면 추가</button>
             <input id="fileInput" type="file" accept=".json,application/json" hidden>
@@ -252,7 +252,8 @@
         </section>
     </main>
 
+    <script src="../game-content-store.js?v=1"></script>
     <script src="../game/story-engine.js?v=2"></script>
-    <script src="editor.js?v=19"></script>
+    <script src="editor.js?v=20"></script>
 </body>
 </html>

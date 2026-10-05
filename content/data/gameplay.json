@@ -46,7 +46,7 @@
     "herbal_potion": {
       "name": "희미한 회복 물약",
       "stationId": "dimensional_rift",
-      "ingredients": [{ "itemId": "wolf_pelt", "quantity": 1 }, { "itemId": "forest_herb", "quantity": 1 }, { "itemId": "torn_record", "quantity": 1 }],
+      "ingredients": [{ "itemId": "wolf_pelt", "quantity": 1 }, { "itemId": "forest_herb", "quantity": 1 }, { "itemId": "forest_herb", "quantity": 1 }],
       "output": { "itemId": "healing_potion", "quantity": 1 },
       "successText": "찢어진 기록의 글자가 빛나더니 재료가 회복 물약으로 변했습니다."
     },
