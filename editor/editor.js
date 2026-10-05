@@ -209,21 +209,26 @@ function validateStory() {
             if (!Number.isInteger(ingredient.quantity) || ingredient.quantity < 1) errors.push(`레시피 '${recipeId}' 재료 ${index + 1} 수량은 1 이상의 정수여야 합니다.`);
         }
         const validOutput = (output, path) => {
+            if (!output || typeof output !== "object" || Array.isArray(output)) {
+                errors.push(`레시피 '${recipeId}' ${path} 데이터가 올바르지 않습니다.`);
+                return;
+            }
             if (!gameplay.items?.[output.itemId]) errors.push(`레시피 '${recipeId}' ${path} 아이템 '${output.itemId}'을(를) 찾을 수 없습니다.`);
             if (!Number.isInteger(output.quantity) || output.quantity < 1) errors.push(`레시피 '${recipeId}' ${path} 수량은 1 이상의 정수여야 합니다.`);
         };
-        if (recipe.outcomes !== undefined) {
-            if (!Array.isArray(recipe.outcomes) || !recipe.outcomes.length) errors.push(`레시피 '${recipeId}' 무작위 결과가 하나 이상 필요합니다.`);
-            for (const [index, outcome] of (recipe.outcomes || []).entries()) {
-                validOutput(outcome, `결과 ${index + 1}`);
-                if (!Number.isFinite(outcome.weight) || outcome.weight <= 0) errors.push(`레시피 '${recipeId}' 결과 ${index + 1} 가중치는 0보다 커야 합니다.`);
+        const hasRandomOutcomes = Array.isArray(recipe.outcomes) && recipe.outcomes.length > 0;
+        if (hasRandomOutcomes) {
+            for (const [index, outcome] of recipe.outcomes.entries()) {
+                validOutput(outcome, `무작위 결과 ${index + 1}`);
+                if (!Number.isFinite(outcome?.weight) || outcome.weight <= 0) errors.push(`레시피 '${recipeId}' 결과 ${index + 1} 가중치는 0보다 커야 합니다.`);
             }
-        } else if (recipe.output) validOutput(recipe.output, "결과");
-        else errors.push(`레시피 '${recipeId}'에 고정 결과 또는 무작위 결과가 필요합니다.`);
+        } else if (recipe.output) validOutput(recipe.output, "고정 결과");
+        else errors.push(`레시피 '${recipeId}'에 고정 결과 아이템을 지정하거나 무작위 결과를 하나 이상 추가해야 합니다.`);
     }
     for (const [recipeId, recipe] of Object.entries(gameplay.recipes || {})) {
         const equipmentInputs = (recipe.ingredients || []).filter((entry) => gameplay.items?.[entry.itemId]?.equipmentSlot);
-        const equipmentOutputs = (recipe.outcomes || (recipe.output ? [recipe.output] : [])).filter((entry) => gameplay.items?.[entry.itemId]?.equipmentSlot);
+        const equipmentOutputList = Array.isArray(recipe.outcomes) && recipe.outcomes.length ? recipe.outcomes : (recipe.output ? [recipe.output] : []);
+        const equipmentOutputs = equipmentOutputList.filter((entry) => gameplay.items?.[entry?.itemId]?.equipmentSlot);
         if (equipmentInputs.length && equipmentOutputs.length) {
             for (const input of equipmentInputs) if (gameplay.items[input.itemId].upgradeable !== true) errors.push("장비 변환 레시피의 입력 장비를 강화 가능으로 설정하세요.");
             for (const output of equipmentOutputs) if (gameplay.items[output.itemId].upgradeable === true) errors.push("1회 강화 결과 장비의 강화 가능 설정을 해제하세요.");
@@ -1316,7 +1321,7 @@ function renderRecipeInspector() {
     $("#recipeDiscoveredByDefault").onchange = () => { recipe.discoveredByDefault = $("#recipeDiscoveredByDefault").checked; markGameplayDirty(); };
     $("#recipeSuccessText").oninput = () => { recipe.successText = $("#recipeSuccessText").value; markGameplayDirty(); };
     renderIngredientRows(recipe);
-    const randomMode = Array.isArray(recipe.outcomes);
+    const randomMode = Array.isArray(recipe.outcomes) && (recipe.outcomes.length > 0 || !recipe.output);
     $("#recipeOutputMode").value = randomMode ? "random" : "fixed";
     $("#fixedRecipeOutput").hidden = randomMode;
     $("#randomRecipeOutput").hidden = !randomMode;
